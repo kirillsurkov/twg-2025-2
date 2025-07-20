@@ -1,0 +1,12 @@
+[package]
+name = "twg-2025-1"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = "0.16.1"
+delaunator = "1.0.2"
+fast_poisson = "1.0.2"
+petgraph = "0.8.2"
+rand = "0.9.1"
+statrs = { version = "0.18.0", features = ["rand"] }
