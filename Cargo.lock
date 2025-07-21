@@ -4414,6 +4414,7 @@ dependencies = [
  "bevy",
  "delaunator",
  "fast_poisson",
+ "kiddo",
  "petgraph 0.8.2",
  "rand 0.9.1",
  "statrs",
