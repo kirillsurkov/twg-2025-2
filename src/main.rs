@@ -1,18 +1,70 @@
 use std::f32::consts::FRAC_PI_2;
 
-use bevy::prelude::*;
-use bevy_flycam::PlayerPlugin;
+use bevy::{
+    core_pipeline::prepass::DepthPrepass, prelude::*,
+    render::experimental::occlusion_culling::OcclusionCulling,
+};
+use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
 
-use crate::level::{Level, LevelBiome, LevelPartBuilder, PartAlign};
+use crate::level::{Level, LevelBiome, LevelPart, LevelPartBuilder, PartAlign};
 
 mod level;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(PlayerPlugin)
+        .add_plugins(NoCameraPlayerPlugin)
         .add_systems(Startup, setup)
         .run();
+}
+
+const BASE_WIDTH: f32 = 120.0;
+const BASE_HEIGHT: f32 = 120.0;
+
+fn area_start() -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Red)
+        .with_size(BASE_WIDTH, BASE_HEIGHT)
+        .with_count(5)
+        .with_fill_ratio(0.2)
+        .build()
+}
+
+fn area_safe() -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Green)
+        .with_size(BASE_WIDTH, BASE_HEIGHT * 0.1)
+        .with_count(1)
+        .with_fill_ratio(1.0)
+        .with_points(vec![
+            Vec2::new(-BASE_WIDTH * 0.4, -BASE_HEIGHT * 0.1 * 0.4),
+            Vec2::new(-BASE_WIDTH * 0.4, 0.0),
+            Vec2::new(BASE_WIDTH * 0.4, 0.0),
+            Vec2::new(BASE_WIDTH * 0.4, -BASE_HEIGHT * 0.1 * 0.4),
+        ])
+        .build()
+}
+
+fn area_center(number: usize) -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Blue)
+        .with_size(BASE_WIDTH, BASE_HEIGHT)
+        .with_count(40)
+        .with_fill_ratio(0.2)
+        .build()
+}
+
+fn area_left(number: usize) -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Cyan)
+        .with_size(BASE_WIDTH * 0.25, BASE_HEIGHT)
+        .with_count(20)
+        .with_fill_ratio(0.2)
+        .build()
+}
+
+fn area_right(number: usize) -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Magenta)
+        .with_size(BASE_WIDTH * 0.25, BASE_HEIGHT)
+        .with_count(20)
+        .with_fill_ratio(0.2)
+        .build()
 }
 
 /// set up a simple 3D scene
@@ -22,103 +74,29 @@ fn setup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let mut level = Level::new();
-    let id = level.add(
-        Vec2::ZERO,
-        LevelPartBuilder::new(LevelBiome::Red)
-            .with_size(20.0, 20.0)
-            .with_count(5)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    let id0 = id;
-    level.add_after(
-        id,
-        PartAlign::Left,
-        LevelPartBuilder::new(LevelBiome::Green)
-            .with_size(5.0, 20.0)
-            .with_count(20)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    let id = level.add_after(
-        id,
-        PartAlign::Right,
-        LevelPartBuilder::new(LevelBiome::Blue)
-            .with_size(10.0, 5.0)
-            .with_count(10)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    level.add_after(
-        id,
-        PartAlign::Down,
-        LevelPartBuilder::new(LevelBiome::Cyan)
-            .with_size(5.0, 5.0)
-            .with_count(5)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    let id = level.add_after(
-        id0,
-        PartAlign::Down,
-        LevelPartBuilder::new(LevelBiome::Magenta)
-            .with_size(20.0, 20.0)
-            .with_count(25)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    let id = level.add_after(
-        id,
-        PartAlign::Down,
-        LevelPartBuilder::new(LevelBiome::Yellow)
-            .with_size(20.0, 20.0)
-            .with_count(25)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    let id = level.add_after(
-        id,
-        PartAlign::Down,
-        LevelPartBuilder::new(LevelBiome::Orange)
-            .with_size(20.0, 20.0)
-            .with_count(25)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    let id = level.add_after(
-        id,
-        PartAlign::Down,
-        LevelPartBuilder::new(LevelBiome::Purple)
-            .with_size(20.0, 20.0)
-            .with_count(25)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
-    level.add_after(
-        id,
-        PartAlign::Down,
-        LevelPartBuilder::new(LevelBiome::Red)
-            .with_size(20.0, 20.0)
-            .with_count(25)
-            .with_fill_ratio(0.2)
-            .build(),
-    );
+    let mut id = level.add(Vec2::ZERO, area_start());
+    for i in 1..=6 {
+        id = level.add_after(id, PartAlign::Down, area_center(i));
+        level.add_after(id, PartAlign::Left, area_left(i));
+        level.add_after(id, PartAlign::Right, area_right(i));
+        id = level.add_after(id, PartAlign::Down, area_safe());
+    }
 
-    let terrain = meshes.add(level.terrain(32.0));
+    let terrain = level.terrain(8.0);
 
     let mut material = StandardMaterial::from_color(Color::WHITE);
-    material.double_sided = true;
-    material.cull_mode = None;
+    // material.double_sided = true;
+    // material.cull_mode = None;
 
     println!("{:?}", level.bounds().center());
 
-    commands.spawn((
-        Mesh3d(terrain),
-        MeshMaterial3d(materials.add(material)),
-        Transform::from_translation(level.bounds().center().extend(0.0).xzy())
-            .with_scale(level.bounds().size().extend(1.0))
-            .with_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
-    ));
+    for chunk in terrain {
+        commands.spawn((
+            Mesh3d(meshes.add(chunk)),
+            MeshMaterial3d(materials.add(material.clone())),
+            Transform::default(),
+        ));
+    }
 
     for (part, point) in level.points() {
         commands.spawn((
@@ -148,4 +126,12 @@ fn setup(
                 .with_rotation(Quat::from_rotation_y((end - start).angle_to(Vec2::X))),
         ));
     }
+
+    commands.spawn((
+        Camera3d::default(),
+        FlyCam,
+        Transform::from_xyz(-2.0, 5.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
+        DepthPrepass,
+        OcclusionCulling,
+    ));
 }
