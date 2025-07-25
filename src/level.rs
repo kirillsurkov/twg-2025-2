@@ -1,11 +1,9 @@
 use std::{
     collections::{BinaryHeap, HashSet},
     f32::consts::E,
-    ops::Div,
 };
 
-use bevy::{color::palettes::css::*, prelude::*};
-use bevy_heightmap::mesh_builder::MeshBuilder;
+use bevy::prelude::*;
 use fast_poisson::Poisson2D;
 use imageproc::{
     distance_transform::euclidean_squared_distance_transform,
@@ -21,7 +19,6 @@ use petgraph::{
     data::Element,
     visit::{EdgeRef, IntoNodeReferences},
 };
-use rand::distr::{Distribution, weighted::WeightedIndex};
 
 fn delaunay(points: &Vec<Vec2>) -> Graph<(), f32, Undirected> {
     let mut graph = Graph::new_undirected();
@@ -110,12 +107,6 @@ fn graph(points: &Vec<Vec2>, ratio: f32) -> Vec<(usize, usize)> {
     }
 
     edges.into_iter().collect()
-}
-
-fn is_last(i: usize, size: UVec2) -> bool {
-    let x = i % size.x as usize;
-    let y = i / size.x as usize;
-    x == size.x as usize - 1 || y == size.y as usize - 1
 }
 
 pub enum LevelBiome {
@@ -223,7 +214,33 @@ pub enum PartAlign {
     Down,
 }
 
+#[derive(Resource)]
 pub struct Level {
+    bounds: Rect,
+    height_map: ImageBuffer<Luma<f32>, Vec<f32>>,
+    biome_map: ImageBuffer<BiomePixel, Vec<f32>>,
+    kd: KdTree<f32, 2>,
+}
+
+impl Level {
+    pub fn bounds(&self) -> Rect {
+        self.bounds
+    }
+
+    pub fn height_map(&self) -> &ImageBuffer<Luma<f32>, Vec<f32>> {
+        &self.height_map
+    }
+
+    pub fn biome_map(&self) -> &ImageBuffer<BiomePixel, Vec<f32>> {
+        &self.biome_map
+    }
+
+    pub fn kd(&self) -> &KdTree<f32, 2> {
+        &self.kd
+    }
+}
+
+pub struct LevelBuilder {
     kd: KdTree<f32, 2>,
     bounds: Rect,
     parts: Vec<LevelPart>,
@@ -231,7 +248,7 @@ pub struct Level {
     edges: Vec<(usize, usize)>,
 }
 
-impl Level {
+impl LevelBuilder {
     const BLACK: Luma<u8> = Luma([0]);
     const WHITE: Luma<u8> = Luma([255]);
 
@@ -313,27 +330,11 @@ impl Level {
         self.add(offset, part)
     }
 
-    pub fn points(&self) -> impl Iterator<Item = (&LevelPart, Vec2)> {
-        self.points
-            .iter()
-            .map(|(i, p)| (&self.parts[*i], p.clone()))
-    }
-
-    pub fn edges(&self) -> impl Iterator<Item = (Vec2, Vec2)> {
-        self.edges
-            .iter()
-            .map(|(start, end)| (self.points[*start].1, self.points[*end].1))
-    }
-
-    pub fn parts(&self) -> impl Iterator<Item = &LevelPart> {
-        self.parts.iter()
-    }
-
-    pub fn bounds(&self) -> Rect {
-        self.bounds
-    }
-
-    fn height_map(&self, scale: f32) -> ImageBuffer<Luma<f32>, Vec<f32>> {
+    fn height_map(
+        &self,
+        scale: f32,
+        biome_map: &ImageBuffer<BiomePixel, Vec<f32>>,
+    ) -> ImageBuffer<Luma<f32>, Vec<f32>> {
         let bounds = IRect {
             min: (self.bounds.min * scale).as_ivec2(),
             max: (self.bounds.max * scale).as_ivec2(),
@@ -346,29 +347,25 @@ impl Level {
 
         let mut image = GrayImage::from_pixel(width, height, Self::BLACK);
 
-        // for point in &self.points {
-        //     let IVec2 { x, y } = (point * scale).as_ivec2() - bounds.min;
-        //     image.put_pixel(x as u32, y as u32, Self::WHITE);
-        // }
-
-        for (start, end) in self.edges() {
-            let start = start * scale - bounds.min.as_vec2();
-            let end = end * scale - bounds.min.as_vec2();
+        for (start, end) in &self.edges {
+            let start = self.points[*start].1 * scale - bounds.min.as_vec2();
+            let end = self.points[*end].1 * scale - bounds.min.as_vec2();
             draw_line_segment_mut(&mut image, (start.x, start.y), (end.x, end.y), Self::WHITE);
         }
 
         let distances = euclidean_squared_distance_transform(&image);
 
         ImageBuffer::from_fn(image.width(), image.height(), |x, y| {
-            Luma([distances.get_pixel(x, y).0[0].sqrt() as f32 / scale])
-        })
+            let dist = distances.get_pixel(x, y).0[0].sqrt() as f32 / scale;
+            let biome = biome_map.get_pixel(x, y).0;
 
-        // filter::gaussian_blur_f32(
-        //     &ImageBuffer::from_fn(image.width(), image.height(), |x, y| {
-        //         Luma([distances.get_pixel(x, y).0[0].sqrt() as f32 / scale])
-        //     }),
-        //     0.1,
-        // )
+            let radius = biome[BiomePixel::RADIUS];
+
+            let road_width = 0.25 * radius;
+            let max_height = 0.5 * radius - road_width;
+
+            Luma([3.0 * (dist - road_width).max(0.0) / max_height.powf(0.75)])
+        })
     }
 
     fn biome_map(&self, scale: f32) -> ImageBuffer<BiomePixel, Vec<f32>> {
@@ -415,81 +412,20 @@ impl Level {
         filter::gaussian_blur_f32(&biomes, 8.0)
     }
 
-    pub fn terrain(&self, scale: f32) -> Vec<Mesh> {
-        println!("heightmap");
-        let height_map = self.height_map(scale);
-        println!("biomemap");
+    pub fn build(self, scale: f32) -> Level {
         let biome_map = self.biome_map(scale);
-        let bounds = (self.bounds.size() * scale).as_uvec2();
-
-        let chunk_size = UVec2::splat(32);
-        let chunks_count = (bounds / chunk_size) + (bounds % chunk_size).min(UVec2::ONE);
-
-        let mut chunks = vec![];
-
-        for y in 0..chunks_count.y {
-            println!("y: {y}");
-            for x in 0..chunks_count.x {
-                let coords = UVec2::new(x, y) * chunk_size;
-
-                let mut builder = MeshBuilder::grid(chunk_size, &|Vec2 { x, y }| {
-                    let Vec2 { x, y } = Vec2::new(0.5 + x, 0.5 - y);
-                    let Vec2 { x, y } = Vec2::new(x, y) * chunk_size.as_vec2();
-                    let UVec2 { x, y } = (coords + Vec2::new(x, y).as_uvec2()).min(bounds - 1);
-
-                    let dist = height_map.get_pixel(x, y).0[0];
-                    let biome = biome_map.get_pixel(x, y).0;
-
-                    let radius = biome[BiomePixel::RADIUS];
-
-                    let road_width = 0.25 * radius;
-                    let max_height = 0.5 * radius - road_width;
-
-                    3.0 * (dist - road_width).max(0.0).div(max_height).powf(0.75)
-                });
-
-                for pos in builder.positions.iter_mut() {
-                    let mut p = Vec3::from_array(*pos).xzy();
-
-                    p.x = p.x + 0.5;
-                    p.z = 0.5 - p.z;
-
-                    p.x += x as f32;
-                    p.z += y as f32;
-
-                    p *= (chunk_size.as_vec2() / scale).extend(1.0).xzy();
-
-                    p += self.bounds.min.extend(0.0).xzy();
-
-                    *pos = p.to_array();
-                }
-
-                let choices = [RED, GREEN, BLUE, AQUA, MAGENTA, YELLOW, ORANGE, PURPLE];
-                let mut rng = rand::rng();
-                let mut colors = vec![];
-                for c_y in (0..chunk_size.y).rev() {
-                    for c_x in 0..chunk_size.x {
-                        let UVec2 { x, y } = (coords + UVec2::new(c_x, c_y)).min(bounds - 1);
-                        let pixel = biome_map.get_pixel(x, y);
-                        let dist = WeightedIndex::new(&pixel.0[1..=8]).unwrap();
-                        colors.push(choices[dist.sample(&mut rng)].to_f32_array());
-                    }
-                }
-
-                chunks.push(
-                    builder
-                        .build()
-                        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors),
-                );
-            }
+        let height_map = self.height_map(scale, &biome_map);
+        Level {
+            bounds: self.bounds,
+            height_map,
+            biome_map,
+            kd: self.kd,
         }
-
-        chunks
     }
 }
 
 #[derive(Clone, Copy)]
-struct BiomePixel([f32; Self::CHANNEL_COUNT as usize]);
+pub struct BiomePixel(pub [f32; Self::CHANNEL_COUNT as usize]);
 
 impl Default for BiomePixel {
     fn default() -> Self {
@@ -501,15 +437,15 @@ impl Default for BiomePixel {
 }
 
 impl BiomePixel {
-    const RADIUS: usize = 0;
-    const RED: usize = 1;
-    const GREEN: usize = 2;
-    const BLUE: usize = 3;
-    const CYAN: usize = 4;
-    const MAGENTA: usize = 5;
-    const YELLOW: usize = 6;
-    const ORANGE: usize = 7;
-    const PURPLE: usize = 8;
+    pub const RADIUS: usize = 0;
+    pub const RED: usize = 1;
+    pub const GREEN: usize = 2;
+    pub const BLUE: usize = 3;
+    pub const CYAN: usize = 4;
+    pub const MAGENTA: usize = 5;
+    pub const YELLOW: usize = 6;
+    pub const ORANGE: usize = 7;
+    pub const PURPLE: usize = 8;
 }
 
 impl Pixel for BiomePixel {

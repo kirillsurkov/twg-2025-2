@@ -1,20 +1,32 @@
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
-    core_pipeline::prepass::DepthPrepass, prelude::*,
-    render::experimental::occlusion_culling::OcclusionCulling,
+    prelude::*,
+    window::{CursorGrabMode, PrimaryWindow},
 };
 use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
+use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 
-use crate::level::{Level, LevelBiome, LevelPart, LevelPartBuilder, PartAlign};
+use crate::{
+    level::{LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
+    player::{Player, PlayerPlugin},
+    terrain::TerrainPlugin,
+};
 
 mod level;
+mod player;
+mod terrain;
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_plugins(NoCameraPlayerPlugin)
+        .add_plugins(EguiPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
+        // .add_plugins(NoCameraPlayerPlugin)
+        .add_plugins(PlayerPlugin)
+        .add_plugins(TerrainPlugin)
         .add_systems(Startup, setup)
+        .add_systems(Update, grab_cursor)
         .run();
 }
 
@@ -67,71 +79,89 @@ fn area_right(number: usize) -> LevelPart {
         .build()
 }
 
-/// set up a simple 3D scene
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
 ) {
-    let mut level = Level::new();
-    let mut id = level.add(Vec2::ZERO, area_start());
+    let mut level_builder = LevelBuilder::new();
+    let mut id = level_builder.add(Vec2::ZERO, area_start());
     for i in 1..=6 {
-        id = level.add_after(id, PartAlign::Down, area_center(i));
-        level.add_after(id, PartAlign::Left, area_left(i));
-        level.add_after(id, PartAlign::Right, area_right(i));
-        id = level.add_after(id, PartAlign::Down, area_safe());
+        id = level_builder.add_after(id, PartAlign::Down, area_center(i));
+        level_builder.add_after(id, PartAlign::Left, area_left(i));
+        level_builder.add_after(id, PartAlign::Right, area_right(i));
+        id = level_builder.add_after(id, PartAlign::Down, area_safe());
     }
 
-    let terrain = level.terrain(8.0);
+    let level = level_builder.build(4.0);
 
-    let mut material = StandardMaterial::from_color(Color::WHITE);
-    // material.double_sided = true;
-    // material.cull_mode = None;
-
-    println!("{:?}", level.bounds().center());
-
-    for chunk in terrain {
-        commands.spawn((
-            Mesh3d(meshes.add(chunk)),
-            MeshMaterial3d(materials.add(material.clone())),
-            Transform::default(),
-        ));
-    }
-
-    for (part, point) in level.points() {
+    for (_, [x, y]) in level.kd().iter() {
         commands.spawn((
             Mesh3d(meshes.add(Circle::new(0.25))),
             MeshMaterial3d(materials.add(Color::BLACK)),
-            Transform::from_xyz(point.x, 0.02, point.y)
-                .with_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+            Transform::from_xyz(x, 0.02, y).with_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
         ));
         commands.spawn((
             PointLight {
-                intensity: 2000.0 * part.radius.powf(3.0),
-                range: part.radius * 2.0,
+                // intensity: 40000.0,
+                range: 30.0,
                 ..Default::default()
             },
-            Transform::from_xyz(point.x, part.radius, point.y),
+            Transform::from_xyz(x, 3.0, y),
         ));
     }
 
-    for (start, end) in level.edges() {
-        let mid = (start + end) * 0.5;
-        let distance = start.distance(end);
-        commands.spawn((
-            Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(1.0, 0.05)))),
-            MeshMaterial3d(materials.add(Color::BLACK)),
-            Transform::from_xyz(mid.x as f32, 0.01, mid.y as f32)
-                .with_scale(Vec3::new(distance * 0.5, 1.0, 1.0))
-                .with_rotation(Quat::from_rotation_y((end - start).angle_to(Vec2::X))),
-        ));
-    }
+    commands.insert_resource(level);
 
-    commands.spawn((
-        Camera3d::default(),
-        FlyCam,
-        Transform::from_xyz(-2.0, 5.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
-        DepthPrepass,
-        OcclusionCulling,
-    ));
+    // for chunk in chunks {
+    //     commands.spawn((
+    //         Mesh3d(meshes.add(chunk)),
+    //         MeshMaterial3d(materials.add(Color::WHITE)),
+    //         Transform::default(),
+    //     ));
+    // }
+
+    // for (part, point) in level.points() {
+
+    // }
+
+    // for (start, end) in level.edges() {
+    //     let mid = (start + end) * 0.5;
+    //     let distance = start.distance(end);
+    //     commands.spawn((
+    //         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(1.0, 0.05)))),
+    //         MeshMaterial3d(materials.add(Color::BLACK)),
+    //         Transform::from_xyz(mid.x as f32, 0.01, mid.y as f32)
+    //             .with_scale(Vec3::new(distance * 0.5, 1.0, 1.0))
+    //             .with_rotation(Quat::from_rotation_y((end - start).angle_to(Vec2::X))),
+    //     ));
+    // }
+
+    // commands.spawn((
+    //     Camera3d::default(),
+    //     FlyCam,
+    //     Transform::default(),
+    //     Visibility::default(),
+    // ));
+
+    commands.spawn((Player, Transform::from_xyz(-2.0, 0.0, 5.0)));
+
+    window.cursor_options.grab_mode = CursorGrabMode::Confined;
+    window.cursor_options.visible = false;
+}
+
+fn grab_cursor(
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    keys: Res<ButtonInput<KeyCode>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        if window.cursor_options.visible {
+            window.cursor_options.grab_mode = CursorGrabMode::Confined;
+            window.cursor_options.visible = false;
+        } else {
+            window.cursor_options.grab_mode = CursorGrabMode::None;
+            window.cursor_options.visible = true;
+        }
+    }
 }
