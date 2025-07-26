@@ -110,14 +110,27 @@ fn graph(points: &Vec<Vec2>, ratio: f32) -> Vec<(usize, usize)> {
 }
 
 pub enum LevelBiome {
-    Red,
-    Green,
-    Blue,
-    Cyan,
-    Magenta,
-    Yellow,
-    Orange,
-    Purple,
+    Safe,
+    Home,
+    Forest,
+    Cave,
+    Ice,
+    Temple,
+    Boss,
+}
+
+impl LevelBiome {
+    fn to_pixel_channel(&self) -> usize {
+        match self {
+            Self::Safe => BiomePixel::AREA_SAFE,
+            Self::Home => BiomePixel::AREA_HOME,
+            Self::Forest => BiomePixel::AREA_FOREST,
+            Self::Cave => BiomePixel::AREA_CAVE,
+            Self::Ice => BiomePixel::AREA_ICE,
+            Self::Temple => BiomePixel::AREA_TEMPLE,
+            Self::Boss => BiomePixel::AREA_BOSS,
+        }
+    }
 }
 
 pub struct LevelPart {
@@ -391,16 +404,7 @@ impl LevelBuilder {
 
             let mut pixel = BiomePixel([0.0; BiomePixel::CHANNEL_COUNT as usize]);
             pixel.0[BiomePixel::RADIUS] = part.radius;
-            pixel.0[match part.biome {
-                LevelBiome::Red => BiomePixel::RED,
-                LevelBiome::Green => BiomePixel::GREEN,
-                LevelBiome::Blue => BiomePixel::BLUE,
-                LevelBiome::Cyan => BiomePixel::CYAN,
-                LevelBiome::Magenta => BiomePixel::MAGENTA,
-                LevelBiome::Yellow => BiomePixel::YELLOW,
-                LevelBiome::Orange => BiomePixel::ORANGE,
-                LevelBiome::Purple => BiomePixel::PURPLE,
-            }] = 1.0;
+            pixel.0[part.biome.to_pixel_channel()] = 1.0;
 
             draw_filled_rect_mut(
                 &mut biomes,
@@ -431,21 +435,20 @@ impl Default for BiomePixel {
     fn default() -> Self {
         let mut data = [0.0; Self::CHANNEL_COUNT as usize];
         data[Self::RADIUS] = 1.0;
-        data[Self::RED] = 1.0;
+        data[Self::AREA_FOREST] = 1.0;
         Self(data)
     }
 }
 
 impl BiomePixel {
     pub const RADIUS: usize = 0;
-    pub const RED: usize = 1;
-    pub const GREEN: usize = 2;
-    pub const BLUE: usize = 3;
-    pub const CYAN: usize = 4;
-    pub const MAGENTA: usize = 5;
-    pub const YELLOW: usize = 6;
-    pub const ORANGE: usize = 7;
-    pub const PURPLE: usize = 8;
+    pub const AREA_SAFE: usize = 1;
+    pub const AREA_HOME: usize = 2;
+    pub const AREA_FOREST: usize = 3;
+    pub const AREA_CAVE: usize = 4;
+    pub const AREA_ICE: usize = 5;
+    pub const AREA_TEMPLE: usize = 6;
+    pub const AREA_BOSS: usize = 7;
 }
 
 impl Pixel for BiomePixel {

@@ -25,6 +25,12 @@ fn main() {
         // .add_plugins(NoCameraPlayerPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(TerrainPlugin)
+        .insert_resource(AmbientLight {
+            color: Color::BLACK,
+            brightness: 0.0,
+            ..Default::default()
+        })
+        .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, setup)
         .add_systems(Update, grab_cursor)
         .run();
@@ -34,7 +40,7 @@ const BASE_WIDTH: f32 = 120.0;
 const BASE_HEIGHT: f32 = 120.0;
 
 fn area_start() -> LevelPart {
-    LevelPartBuilder::new(LevelBiome::Red)
+    LevelPartBuilder::new(LevelBiome::Home)
         .with_size(BASE_WIDTH, BASE_HEIGHT)
         .with_count(5)
         .with_fill_ratio(0.2)
@@ -42,7 +48,7 @@ fn area_start() -> LevelPart {
 }
 
 fn area_safe() -> LevelPart {
-    LevelPartBuilder::new(LevelBiome::Green)
+    LevelPartBuilder::new(LevelBiome::Safe)
         .with_size(BASE_WIDTH, BASE_HEIGHT * 0.1)
         .with_count(1)
         .with_fill_ratio(1.0)
@@ -56,7 +62,7 @@ fn area_safe() -> LevelPart {
 }
 
 fn area_center(number: usize) -> LevelPart {
-    LevelPartBuilder::new(LevelBiome::Blue)
+    LevelPartBuilder::new(LevelBiome::Forest)
         .with_size(BASE_WIDTH, BASE_HEIGHT)
         .with_count(40)
         .with_fill_ratio(0.2)
@@ -64,7 +70,7 @@ fn area_center(number: usize) -> LevelPart {
 }
 
 fn area_left(number: usize) -> LevelPart {
-    LevelPartBuilder::new(LevelBiome::Cyan)
+    LevelPartBuilder::new(LevelBiome::Cave)
         .with_size(BASE_WIDTH * 0.25, BASE_HEIGHT)
         .with_count(20)
         .with_fill_ratio(0.2)
@@ -72,7 +78,7 @@ fn area_left(number: usize) -> LevelPart {
 }
 
 fn area_right(number: usize) -> LevelPart {
-    LevelPartBuilder::new(LevelBiome::Magenta)
+    LevelPartBuilder::new(LevelBiome::Cave)
         .with_size(BASE_WIDTH * 0.25, BASE_HEIGHT)
         .with_count(20)
         .with_fill_ratio(0.2)
@@ -87,7 +93,7 @@ fn setup(
 ) {
     let mut level_builder = LevelBuilder::new();
     let mut id = level_builder.add(Vec2::ZERO, area_start());
-    for i in 1..=6 {
+    for i in 1..=1 {
         id = level_builder.add_after(id, PartAlign::Down, area_center(i));
         level_builder.add_after(id, PartAlign::Left, area_left(i));
         level_builder.add_after(id, PartAlign::Right, area_right(i));
@@ -104,11 +110,11 @@ fn setup(
         ));
         commands.spawn((
             PointLight {
-                // intensity: 40000.0,
-                range: 30.0,
+                intensity: 1000000.0,
+                range: 100.0,
                 ..Default::default()
             },
-            Transform::from_xyz(x, 3.0, y),
+            Transform::from_xyz(x, 10.0, y),
         ));
     }
 
