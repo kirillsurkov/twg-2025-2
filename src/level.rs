@@ -9,7 +9,7 @@ use imageproc::{
     distance_transform::euclidean_squared_distance_transform,
     drawing::{draw_filled_rect_mut, draw_line_segment_mut},
     filter,
-    image::{GrayImage, ImageBuffer, Luma, LumaA, Pixel, Primitive, Rgb, Rgba},
+    image::{GrayImage, ImageBuffer, Luma, LumaA, Pixel, Primitive, Rgb, RgbImage, Rgba},
     rect,
 };
 use kiddo::{KdTree, SquaredEuclidean};

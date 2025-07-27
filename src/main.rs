@@ -1,11 +1,15 @@
+#![windows_subsystem = "windows"]
+
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::{
+    pbr::Lightmap,
     prelude::*,
     window::{CursorGrabMode, PrimaryWindow},
 };
-use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
-use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+// use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
+// use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+use kiddo::SquaredEuclidean;
 
 use crate::{
     level::{LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
@@ -19,9 +23,15 @@ mod terrain;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: "Tuonela".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }))
+        // .add_plugins(EguiPlugin::default())
+        // .add_plugins(WorldInspectorPlugin::default())
         // .add_plugins(NoCameraPlayerPlugin)
         .add_plugins(PlayerPlugin)
         .add_plugins(TerrainPlugin)
@@ -30,7 +40,7 @@ fn main() {
             brightness: 0.0,
             ..Default::default()
         })
-        .insert_resource(ClearColor(Color::BLACK))
+        .insert_resource(ClearColor(Color::srgba(0.02, 0.02, 0.02, 1.0)))
         .add_systems(Startup, setup)
         .add_systems(Update, grab_cursor)
         .run();
@@ -93,7 +103,7 @@ fn setup(
 ) {
     let mut level_builder = LevelBuilder::new();
     let mut id = level_builder.add(Vec2::ZERO, area_start());
-    for i in 1..=1 {
+    for i in 1..=3 {
         id = level_builder.add_after(id, PartAlign::Down, area_center(i));
         level_builder.add_after(id, PartAlign::Left, area_left(i));
         level_builder.add_after(id, PartAlign::Right, area_right(i));
@@ -102,21 +112,29 @@ fn setup(
 
     let level = level_builder.build(4.0);
 
+    let mut player_xy = Vec2::MAX;
     for (_, [x, y]) in level.kd().iter() {
-        commands.spawn((
-            Mesh3d(meshes.add(Circle::new(0.25))),
-            MeshMaterial3d(materials.add(Color::BLACK)),
-            Transform::from_xyz(x, 0.02, y).with_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
-        ));
-        commands.spawn((
-            PointLight {
-                intensity: 1000000.0,
-                range: 100.0,
-                ..Default::default()
-            },
-            Transform::from_xyz(x, 10.0, y),
-        ));
+        if y < player_xy.y {
+            player_xy.x = x;
+            player_xy.y = y;
+        }
     }
+
+    // for (_, [x, y]) in level.kd().iter() {
+    //     commands.spawn((
+    //         Mesh3d(meshes.add(Circle::new(0.25))),
+    //         MeshMaterial3d(materials.add(Color::BLACK)),
+    //         Transform::from_xyz(x, 0.02, y).with_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
+    //     ));
+    //     commands.spawn((
+    //         PointLight {
+    //             intensity: 1000000.0,
+    //             range: 100.0,
+    //             ..Default::default()
+    //         },
+    //         Transform::from_xyz(x, 10.0, y),
+    //     ));
+    // }
 
     commands.insert_resource(level);
 
@@ -151,7 +169,7 @@ fn setup(
     //     Visibility::default(),
     // ));
 
-    commands.spawn((Player, Transform::from_xyz(-2.0, 0.0, 5.0)));
+    commands.spawn((Player, Transform::from_xyz(player_xy.x, 0.0, player_xy.y)));
 
     window.cursor_options.grab_mode = CursorGrabMode::Confined;
     window.cursor_options.visible = false;

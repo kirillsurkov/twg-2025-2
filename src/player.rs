@@ -169,7 +169,7 @@ fn update(
         let scale = level_bounds.size() / UVec2::from(height_map.dimensions()).as_vec2();
 
         let mut resolved = false;
-        for i in 0..20 {
+        for i in 0..100 {
             let step = i as f32 / 10.0;
 
             for vec in [Vec3::X, -Vec3::X, Vec3::Z, -Vec3::Z] {

@@ -1,22 +1,22 @@
-use std::ops::{Add, Mul};
+use std::{
+    f32::consts::SQRT_2,
+    ops::{Add, Mul},
+};
 
 use bevy::{
     asset::RenderAssetUsages,
-    color::palettes::css::{AQUA, BLUE, GREEN, MAGENTA, ORANGE, PURPLE, RED, YELLOW},
+    pbr::Lightmap,
     prelude::*,
+    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
     utils::Parallel,
 };
 use bevy_heightmap::mesh_builder::MeshBuilder;
-use imageproc::{
-    drawing::Canvas,
-    image::{
-        DynamicImage, GenericImage, GenericImageView, GrayImage, Luma, Pixel, Rgb, RgbImage,
-        imageops::FilterType,
-    },
-};
-use rand::distr::{Distribution, weighted::WeightedIndex};
+use imageproc::image::{DynamicImage, GrayImage, Luma, Rgb, RgbImage, imageops::FilterType};
 
-use crate::level::{BiomePixel, Level};
+use crate::{
+    level::{BiomePixel, Level},
+    player::Player,
+};
 
 pub struct TerrainPlugin;
 
@@ -24,7 +24,10 @@ impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, setup.run_if(resource_added::<Level>));
         app.add_systems(Update, init_chunks.after(setup));
-        app.insert_resource(Textures::new());
+        app.add_systems(
+            Update,
+            update_lightmap.run_if(resource_exists::<Level>.and(resource_exists::<Textures>)),
+        );
     }
 }
 
@@ -32,7 +35,7 @@ impl Plugin for TerrainPlugin {
 struct Chunk(u32, u32);
 
 impl Chunk {
-    const MESH_SIZE: u32 = 64;
+    const MESH_SIZE: u32 = 48;
     const TEXTURE_SIZE: u32 = 128;
 }
 
@@ -170,10 +173,11 @@ struct Textures {
     tiles: PbrTexture,
     bricks: PbrTexture,
     guts: PbrTexture,
+    light_map: RgbImage,
 }
 
 impl Textures {
-    fn new() -> Self {
+    fn new(light_map: RgbImage) -> Self {
         Self {
             grass: PbrTexture::load("grass"),
             dirt: PbrTexture::load("dirt"),
@@ -181,16 +185,19 @@ impl Textures {
             tiles: PbrTexture::load("tiles"),
             bricks: PbrTexture::load("bricks"),
             guts: PbrTexture::load("guts"),
+            light_map,
         }
     }
 }
 
-fn setup(mut commands: Commands, level: Res<Level>) {
+fn setup(mut commands: Commands, level: Res<Level>, mut images: ResMut<Assets<Image>>) {
     let texture_size = UVec2::from(level.height_map().dimensions());
     let chunk_size = UVec2::splat(Chunk::MESH_SIZE);
     let chunks_count = (texture_size / chunk_size) + (texture_size % chunk_size).min(UVec2::ONE);
     let starting_point = level.bounds().min;
     let scale = chunk_size.as_vec2() * level.bounds().size() / texture_size.as_vec2();
+
+    commands.insert_resource(Textures::new(RgbImage::new(chunks_count.x, chunks_count.y)));
 
     let mut terrain = commands.spawn((
         Name::new("Terrain"),
@@ -201,6 +208,10 @@ fn setup(mut commands: Commands, level: Res<Level>) {
     for y in 0..chunks_count.y {
         for x in 0..chunks_count.x {
             let pos = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * scale + starting_point;
+            let uv_rect = Rect {
+                min: UVec2::new(x, y).as_vec2() / chunks_count.as_vec2(),
+                max: UVec2::new(x + 1, y + 1).as_vec2() / chunks_count.as_vec2(),
+            };
             terrain.with_child((
                 Name::new(format!("Chunk ({x} {y})")),
                 Chunk(x, y),
@@ -317,11 +328,12 @@ fn init_chunks(
                 }
             }
 
-            meshes.push((
-                entity,
-                builder.build().with_generated_tangents().unwrap(),
-                pbr_texture,
-            ));
+            let uv_0 = builder.uvs.clone();
+            let mut mesh = builder.build();
+            mesh.generate_tangents().unwrap();
+            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, uv_0);
+
+            meshes.push((entity, mesh, pbr_texture));
         },
     );
 
@@ -344,8 +356,81 @@ fn init_chunks(
                     false,
                     RenderAssetUsages::RENDER_WORLD,
                 ))),
+                unlit: true,
                 ..Default::default()
             })),
         ));
     }
+}
+
+fn update_lightmap(
+    level: Res<Level>,
+    mut textures: ResMut<Textures>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    player: Single<&Transform, With<Player>>,
+    chunks: Query<(&Chunk, &MeshMaterial3d<StandardMaterial>)>,
+    time: Res<Time>,
+) {
+    let pos = ((player.translation.xz() - level.bounds().min) / level.bounds().size())
+        .clamp(Vec2::ZERO, Vec2::ONE);
+    let pos = (UVec2::from(textures.light_map.dimensions()).as_vec2() * pos).as_uvec2();
+
+    for (x, y) in [
+        (pos.x as i32 - 1, pos.y as i32 - 1),
+        (pos.x as i32 - 1, pos.y as i32),
+        (pos.x as i32 - 1, pos.y as i32 + 1),
+        (pos.x as i32, pos.y as i32 - 1),
+        (pos.x as i32, pos.y as i32),
+        (pos.x as i32, pos.y as i32 + 1),
+        (pos.x as i32 + 1, pos.y as i32 - 1),
+        (pos.x as i32 + 1, pos.y as i32),
+        (pos.x as i32 + 1, pos.y as i32 + 1),
+    ] {
+        let dist = IVec2::new(x, y)
+            .as_vec2()
+            .distance(UVec2::new(pos.x, pos.y).as_vec2())
+            / SQRT_2;
+        if x >= 0
+            && x < textures.light_map.width() as i32
+            && y >= 0
+            && y < textures.light_map.height() as i32
+        {
+            let brightness = 255;//(255.0 * (1.0 - 0.5 * dist)) as u8;
+            textures.light_map.put_pixel(
+                x as u32,
+                y as u32,
+                Rgb([brightness, brightness, brightness]),
+            );
+        }
+    }
+
+    let mut to_change = Parallel::<Vec<(Handle<StandardMaterial>, f32)>>::default();
+    chunks.par_iter().for_each_init(
+        || to_change.borrow_local_mut(),
+        |to_change, (Chunk(x, y), handle)| {
+            let brightness = textures.light_map.get_pixel(*x, *y).0[0] as f32 / 255.0;
+            let brightness = brightness * 0.5;
+            let material = materials.get(handle).unwrap();
+
+            let current_brightness = {
+                let color = material.base_color.to_srgba();
+                (color.red + color.green + color.blue) / 3.0
+            };
+
+            let brightness = (current_brightness + time.delta_secs() * 2.0)
+                .max(0.0)
+                .min(brightness);
+
+            if brightness != current_brightness {
+                to_change.push((handle.clone_weak(), brightness));
+            }
+        },
+    );
+
+    for (material, brightness) in to_change.drain() {
+        materials.get_mut(&material).unwrap().base_color =
+            Color::srgba(brightness, brightness, brightness, 1.0);
+    }
+
+    // println!("{}", 1.0 / time.delta_secs_f64());
 }
