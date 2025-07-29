@@ -1,6 +1,6 @@
 use bevy::{
     asset::RenderAssetUsages,
-    image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
+    image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     pbr::{ExtendedMaterial, MaterialExtension},
     prelude::*,
     render::render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
@@ -68,61 +68,64 @@ impl DynamicLightmap {
 
 impl Textures {
     fn new(images: &mut Assets<Image>, names: &[&str]) -> Self {
-        let base_path = "./assets/textures";
-
         Self {
             albedo: images.add(Self::load_as_array(
+                "albedo",
                 TextureFormat::Rgba8UnormSrgb,
-                names
-                    .iter()
-                    .map(|name| format!("{base_path}/{name}/albedo.png")),
+                names,
             )),
             roughness: images.add(Self::load_as_array(
+                "roughness",
                 TextureFormat::R8Unorm,
-                names
-                    .iter()
-                    .map(|name| format!("{base_path}/{name}/roughness.png")),
+                names,
             )),
             normal: images.add(Self::load_as_array(
+                "normal",
                 TextureFormat::Rgba8Unorm,
-                names
-                    .iter()
-                    .map(|name| format!("{base_path}/{name}/normal.png")),
+                names,
             )),
         }
     }
 
-    fn load_as_array<'a, T: AsRef<str>>(
-        texture_format: TextureFormat,
-        paths: impl Iterator<Item = T>,
-    ) -> Image {
+    fn load_as_array(part: &str, texture_format: TextureFormat, names: &[&str]) -> Image {
+        let base_path = "./assets/textures";
         let mut data = vec![];
         let mut size = (0, 0);
         let mut mip_levels = 0;
         let mut count = 0;
-        for path in paths {
-            let image = imageproc::image::open(path.as_ref()).unwrap();
+
+        for name in names {
+            let path = format!("{base_path}/{name}/{part}.png");
+            let image = imageproc::image::open(&path).unwrap();
             let cur_size = image.dimensions();
             if count == 0 {
                 size = cur_size;
-                mip_levels = (size.0.min(size.1) as f32).log2() as u32;
-                mip_levels = mip_levels.min(6);
+                mip_levels = (size.0.min(size.1) as f32).log2() as u32 + 1;
             } else if size != cur_size {
                 panic!(
-                    "Textures should be the same size. {} differs. {cur_size:?} != {size:?}",
-                    path.as_ref()
+                    "Textures should be the same size. {path} differs. {cur_size:?} != {size:?}",
                 );
             }
             for mip in 0..mip_levels {
-                let image = image.resize_exact(
-                    image.width() / 2u32.pow(mip),
-                    image.height() / 2u32.pow(mip),
-                    FilterType::Gaussian,
-                );
+                let path = format!("{base_path}/{name}/{part}.{mip}.png");
+                let image = match (mip, imageproc::image::open(&path)) {
+                    (0, _) => image.clone(),
+                    (_, Ok(image)) => image,
+                    (_, _) => {
+                        let image = image.resize_exact(
+                            image.width() / 2u32.pow(mip),
+                            image.height() / 2u32.pow(mip),
+                            FilterType::Lanczos3,
+                        );
+                        image.save(path.clone()).unwrap();
+                        println!("Created mip {path}");
+                        image
+                    }
+                };
                 data.extend(match texture_format.components() {
                     1 => image.into_luma8().into_vec(),
                     4 => image.into_rgba8().into_vec(),
-                    channels @ _ => panic!("Unsupported channels: {channels} {}", path.as_ref()),
+                    channels @ _ => panic!("Unsupported channels: {channels} {path}"),
                 });
             }
             count += 1;
@@ -143,6 +146,9 @@ impl Textures {
         image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
             address_mode_u: ImageAddressMode::Repeat,
             address_mode_v: ImageAddressMode::Repeat,
+            min_filter: ImageFilterMode::Linear,
+            mag_filter: ImageFilterMode::Linear,
+            mipmap_filter: ImageFilterMode::Linear,
             ..Default::default()
         });
 

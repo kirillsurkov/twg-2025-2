@@ -2921,7 +2921,7 @@ dependencies = [
  "getrandom 0.2.16",
  "image",
  "itertools 0.12.1",
- "nalgebra 0.32.6",
+ "nalgebra",
  "num",
  "rand 0.8.5",
  "rand_distr 0.4.3",
@@ -3395,24 +3395,7 @@ dependencies = [
  "num-complex",
  "num-rational",
  "num-traits",
- "simba 0.8.1",
- "typenum",
-]
-
-[[package]]
-name = "nalgebra"
-version = "0.33.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26aecdf64b707efd1310e3544d709c5c0ac61c13756046aaaba41be5c4f66a3b"
-dependencies = [
- "approx",
- "matrixmultiply",
- "num-complex",
- "num-rational",
- "num-traits",
- "rand 0.8.5",
- "rand_distr 0.4.3",
- "simba 0.9.0",
+ "simba",
  "typenum",
 ]
 
@@ -4796,19 +4779,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "simba"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3a386a501cd104797982c15ae17aafe8b9261315b5d07e3ec803f2ea26be0fa"
-dependencies = [
- "approx",
- "num-complex",
- "num-traits",
- "paste",
- "wide",
-]
-
-[[package]]
 name = "simd-adler32"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4929,18 +4899,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "statrs"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a3fe7c28c6512e766b0874335db33c94ad7b8f9054228ae1c2abd47ce7d335e"
-dependencies = [
- "approx",
- "nalgebra 0.33.2",
- "num-traits",
- "rand 0.8.5",
-]
 
 [[package]]
 name = "strict-num"
@@ -5313,7 +5271,6 @@ dependencies = [
  "kiddo",
  "petgraph 0.8.2",
  "rand 0.9.1",
- "statrs",
 ]
 
 [[package]]

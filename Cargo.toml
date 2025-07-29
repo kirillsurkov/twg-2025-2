@@ -14,4 +14,3 @@ imageproc = "0.25.0"
 kiddo = "5.2.2"
 petgraph = "0.8.2"
 rand = "0.9.1"
-statrs = { version = "0.18.0", features = ["rand"] }
