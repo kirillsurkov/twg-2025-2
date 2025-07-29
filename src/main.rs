@@ -1,15 +1,11 @@
-#![windows_subsystem = "windows"]
-
-use std::f32::consts::FRAC_PI_2;
+// #![windows_subsystem = "windows"]
 
 use bevy::{
-    pbr::Lightmap,
     prelude::*,
     window::{CursorGrabMode, PrimaryWindow},
 };
 // use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
-// use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
-use kiddo::SquaredEuclidean;
+use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 
 use crate::{
     level::{LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
@@ -97,13 +93,11 @@ fn area_right(number: usize) -> LevelPart {
 
 fn setup(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
 ) {
     let mut level_builder = LevelBuilder::new();
     let mut id = level_builder.add(Vec2::ZERO, area_start());
-    for i in 1..=3 {
+    for i in 1..=2 {
         id = level_builder.add_after(id, PartAlign::Down, area_center(i));
         level_builder.add_after(id, PartAlign::Left, area_left(i));
         level_builder.add_after(id, PartAlign::Right, area_right(i));
@@ -112,64 +106,46 @@ fn setup(
 
     let level = level_builder.build(4.0);
 
-    let mut player_xy = Vec2::MAX;
+    let mut player_xy = Vec2::MIN;
     for (_, [x, y]) in level.kd().iter() {
-        if y < player_xy.y {
+        if y >= player_xy.y {
             player_xy.x = x;
             player_xy.y = y;
         }
     }
 
-    // for (_, [x, y]) in level.kd().iter() {
-    //     commands.spawn((
-    //         Mesh3d(meshes.add(Circle::new(0.25))),
-    //         MeshMaterial3d(materials.add(Color::BLACK)),
-    //         Transform::from_xyz(x, 0.02, y).with_rotation(Quat::from_rotation_x(-FRAC_PI_2)),
-    //     ));
-    //     commands.spawn((
-    //         PointLight {
-    //             intensity: 1000000.0,
-    //             range: 100.0,
-    //             ..Default::default()
-    //         },
-    //         Transform::from_xyz(x, 10.0, y),
-    //     ));
-    // }
-
     commands.insert_resource(level);
 
-    // for chunk in chunks {
-    //     commands.spawn((
-    //         Mesh3d(meshes.add(chunk)),
-    //         MeshMaterial3d(materials.add(Color::WHITE)),
-    //         Transform::default(),
-    //     ));
-    // }
-
-    // for (part, point) in level.points() {
-
-    // }
-
-    // for (start, end) in level.edges() {
-    //     let mid = (start + end) * 0.5;
-    //     let distance = start.distance(end);
-    //     commands.spawn((
-    //         Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(1.0, 0.05)))),
-    //         MeshMaterial3d(materials.add(Color::BLACK)),
-    //         Transform::from_xyz(mid.x as f32, 0.01, mid.y as f32)
-    //             .with_scale(Vec3::new(distance * 0.5, 1.0, 1.0))
-    //             .with_rotation(Quat::from_rotation_y((end - start).angle_to(Vec2::X))),
-    //     ));
-    // }
-
-    // commands.spawn((
-    //     Camera3d::default(),
-    //     FlyCam,
-    //     Transform::default(),
-    //     Visibility::default(),
-    // ));
-
     commands.spawn((Player, Transform::from_xyz(player_xy.x, 0.0, player_xy.y)));
+
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 200.0,
+            ..Default::default()
+        },
+        Transform::default().looking_to(Vec3::new(-1.0, -1.0, -1.0), Vec3::Y),
+    ));
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 200.0,
+            ..Default::default()
+        },
+        Transform::default().looking_to(Vec3::new(-1.0, -1.0, 1.0), Vec3::Y),
+    ));
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 200.0,
+            ..Default::default()
+        },
+        Transform::default().looking_to(Vec3::new(1.0, -1.0, -1.0), Vec3::Y),
+    ));
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 200.0,
+            ..Default::default()
+        },
+        Transform::default().looking_to(Vec3::new(1.0, -1.0, 1.0), Vec3::Y),
+    ));
 
     window.cursor_options.grab_mode = CursorGrabMode::Confined;
     window.cursor_options.visible = false;

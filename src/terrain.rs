@@ -1,17 +1,13 @@
-use std::{
-    f32::consts::SQRT_2,
-    ops::{Add, Mul},
-};
-
 use bevy::{
     asset::RenderAssetUsages,
-    pbr::Lightmap,
+    image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
+    pbr::{ExtendedMaterial, MaterialExtension},
     prelude::*,
-    render::render_resource::{Extent3d, TextureDimension, TextureFormat},
+    render::render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
     utils::Parallel,
 };
 use bevy_heightmap::mesh_builder::MeshBuilder;
-use imageproc::image::{DynamicImage, GrayImage, Luma, Rgb, RgbImage, imageops::FilterType};
+use imageproc::image::{GenericImageView, imageops::FilterType};
 
 use crate::{
     level::{BiomePixel, Level},
@@ -22,11 +18,15 @@ pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(MaterialPlugin::<
+            ExtendedMaterial<StandardMaterial, TerrainMaterial>,
+        >::default());
         app.add_systems(Update, setup.run_if(resource_added::<Level>));
         app.add_systems(Update, init_chunks.after(setup));
         app.add_systems(
             Update,
-            update_lightmap.run_if(resource_exists::<Level>.and(resource_exists::<Textures>)),
+            update_lightmap
+                .run_if(resource_exists::<Level>.and(resource_exists::<DynamicLightmap>)),
         );
     }
 }
@@ -35,158 +35,120 @@ impl Plugin for TerrainPlugin {
 struct Chunk(u32, u32);
 
 impl Chunk {
-    const MESH_SIZE: u32 = 48;
-    const TEXTURE_SIZE: u32 = 128;
-}
-
-struct PbrPixel {
-    albedo: Rgb<u8>,
-    roughness: Luma<u8>,
-    normal: Rgb<u8>,
-}
-
-impl Mul<f32> for PbrPixel {
-    type Output = Self;
-
-    fn mul(self, rhs: f32) -> Self::Output {
-        Self {
-            albedo: Rgb([
-                (rhs * self.albedo[0] as f32).clamp(0.0, 255.0) as u8,
-                (rhs * self.albedo[1] as f32).clamp(0.0, 255.0) as u8,
-                (rhs * self.albedo[2] as f32).clamp(0.0, 255.0) as u8,
-            ]),
-            roughness: Luma([(rhs * self.roughness[0] as f32).clamp(0.0, 255.0) as u8]),
-            normal: Rgb([
-                (rhs * self.normal[0] as f32).clamp(0.0, 255.0) as u8,
-                (rhs * self.normal[1] as f32).clamp(0.0, 255.0) as u8,
-                (rhs * self.normal[2] as f32).clamp(0.0, 255.0) as u8,
-            ]),
-        }
-    }
-}
-
-impl Mul<PbrPixel> for f32 {
-    type Output = PbrPixel;
-
-    fn mul(self, rhs: PbrPixel) -> Self::Output {
-        rhs * self
-    }
-}
-
-impl Add<PbrPixel> for PbrPixel {
-    type Output = Self;
-
-    fn add(self, rhs: PbrPixel) -> Self::Output {
-        Self {
-            albedo: Rgb([
-                (rhs.albedo[0] as u32 + self.albedo[0] as u32).clamp(0, 255) as u8,
-                (rhs.albedo[1] as u32 + self.albedo[1] as u32).clamp(0, 255) as u8,
-                (rhs.albedo[2] as u32 + self.albedo[2] as u32).clamp(0, 255) as u8,
-            ]),
-            roughness: Luma([
-                (rhs.roughness[0] as u32 + self.roughness[0] as u32).clamp(0, 255) as u8,
-            ]),
-            normal: Rgb([
-                (rhs.normal[0] as u32 + self.normal[0] as u32).clamp(0, 255) as u8,
-                (rhs.normal[1] as u32 + self.normal[1] as u32).clamp(0, 255) as u8,
-                (rhs.normal[2] as u32 + self.normal[2] as u32).clamp(0, 255) as u8,
-            ]),
-        }
-    }
-}
-
-struct PbrTexture {
-    albedo: RgbImage,
-    roughness: GrayImage,
-    normal: RgbImage,
-}
-
-impl PbrTexture {
-    fn new() -> Self {
-        Self {
-            albedo: RgbImage::new(Chunk::TEXTURE_SIZE, Chunk::TEXTURE_SIZE),
-            roughness: GrayImage::new(Chunk::TEXTURE_SIZE, Chunk::TEXTURE_SIZE),
-            normal: RgbImage::new(Chunk::TEXTURE_SIZE, Chunk::TEXTURE_SIZE),
-        }
-    }
-
-    fn load(name: &str) -> Self {
-        let base_path = "./assets/textures";
-        Self {
-            albedo: Self::load_texture(format!("{base_path}/{name}/albedo.png")).into(),
-            roughness: Self::load_texture(format!("{base_path}/{name}/roughness.png")).into(),
-            normal: Self::load_texture(format!("{base_path}/{name}/normal.png")).into(),
-        }
-    }
-
-    fn load_texture<S: AsRef<str>>(path: S) -> DynamicImage {
-        imageproc::image::open(path.as_ref()).unwrap().resize_exact(
-            Chunk::TEXTURE_SIZE,
-            Chunk::TEXTURE_SIZE,
-            FilterType::Gaussian,
-        )
-    }
-
-    fn get_pixel(&self, x: u32, y: u32) -> PbrPixel {
-        PbrPixel {
-            albedo: *self.albedo.get_pixel(x, y),
-            roughness: *self.roughness.get_pixel(x, y),
-            normal: *self.normal.get_pixel(x, y),
-        }
-    }
-
-    fn put_pixel(&mut self, x: u32, y: u32, pixel: PbrPixel) {
-        self.albedo.put_pixel(x, y, pixel.albedo);
-        self.roughness.put_pixel(x, y, pixel.roughness);
-        self.normal.put_pixel(x, y, pixel.normal);
-    }
-
-    fn gradient(x: u32, y: u32, value: f32, textures: &[(&Self, f32)]) -> PbrPixel {
-        let index = match textures.binary_search_by(|(_, f)| f.partial_cmp(&value).unwrap()) {
-            Ok(index) => index,
-            Err(0) => 0,
-            Err(index) if index >= textures.len() => textures.len() - 2,
-            Err(index) => index - 1,
-        };
-
-        let start = &textures[index];
-        let end = &textures[index + 1];
-        let range = end.1 - start.1;
-        let current = if range <= f32::EPSILON {
-            0.0
-        } else {
-            ((value - start.1) / range).clamp(0.0, 1.0)
-        };
-
-        let start = start.0.get_pixel(x, y);
-        let end = end.0.get_pixel(x, y);
-
-        start * (1.0 - current) + end * current
-    }
+    const MESH_SIZE: u32 = 128;
 }
 
 #[derive(Resource)]
 struct Textures {
-    grass: PbrTexture,
-    dirt: PbrTexture,
-    stone: PbrTexture,
-    tiles: PbrTexture,
-    bricks: PbrTexture,
-    guts: PbrTexture,
-    light_map: RgbImage,
+    albedo: Handle<Image>,
+    roughness: Handle<Image>,
+    normal: Handle<Image>,
+}
+
+#[derive(Resource)]
+struct DynamicLightmap(Handle<Image>);
+
+impl DynamicLightmap {
+    fn new(images: &mut Assets<Image>, size: UVec2) -> Self {
+        let image = Image::new_fill(
+            Extent3d {
+                width: size.x,
+                height: size.y,
+                ..Default::default()
+            },
+            TextureDimension::D2,
+            &[0],
+            TextureFormat::R32Float,
+            RenderAssetUsages::all(),
+        );
+
+        Self(images.add(image))
+    }
 }
 
 impl Textures {
-    fn new(light_map: RgbImage) -> Self {
+    fn new(images: &mut Assets<Image>, names: &[&str]) -> Self {
+        let base_path = "./assets/textures";
+
         Self {
-            grass: PbrTexture::load("grass"),
-            dirt: PbrTexture::load("dirt"),
-            stone: PbrTexture::load("stone"),
-            tiles: PbrTexture::load("tiles"),
-            bricks: PbrTexture::load("bricks"),
-            guts: PbrTexture::load("guts"),
-            light_map,
+            albedo: images.add(Self::load_as_array(
+                TextureFormat::Rgba8UnormSrgb,
+                names
+                    .iter()
+                    .map(|name| format!("{base_path}/{name}/albedo.png")),
+            )),
+            roughness: images.add(Self::load_as_array(
+                TextureFormat::R8Unorm,
+                names
+                    .iter()
+                    .map(|name| format!("{base_path}/{name}/roughness.png")),
+            )),
+            normal: images.add(Self::load_as_array(
+                TextureFormat::Rgba8Unorm,
+                names
+                    .iter()
+                    .map(|name| format!("{base_path}/{name}/normal.png")),
+            )),
         }
+    }
+
+    fn load_as_array<'a, T: AsRef<str>>(
+        texture_format: TextureFormat,
+        paths: impl Iterator<Item = T>,
+    ) -> Image {
+        let mut data = vec![];
+        let mut size = (0, 0);
+        let mut mip_levels = 0;
+        let mut count = 0;
+        for path in paths {
+            let image = imageproc::image::open(path.as_ref()).unwrap();
+            let cur_size = image.dimensions();
+            if count == 0 {
+                size = cur_size;
+                mip_levels = (size.0.min(size.1) as f32).log2() as u32;
+                mip_levels = mip_levels.min(6);
+            } else if size != cur_size {
+                panic!(
+                    "Textures should be the same size. {} differs. {cur_size:?} != {size:?}",
+                    path.as_ref()
+                );
+            }
+            for mip in 0..mip_levels {
+                let image = image.resize_exact(
+                    image.width() / 2u32.pow(mip),
+                    image.height() / 2u32.pow(mip),
+                    FilterType::Gaussian,
+                );
+                data.extend(match texture_format.components() {
+                    1 => image.into_luma8().into_vec(),
+                    4 => image.into_rgba8().into_vec(),
+                    channels @ _ => panic!("Unsupported channels: {channels} {}", path.as_ref()),
+                });
+            }
+            count += 1;
+        }
+
+        let mut image = Image::new(
+            Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: count,
+            },
+            TextureDimension::D2,
+            data,
+            texture_format,
+            RenderAssetUsages::RENDER_WORLD,
+        );
+
+        image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::Repeat,
+            address_mode_v: ImageAddressMode::Repeat,
+            ..Default::default()
+        });
+
+        image.texture_descriptor.mip_level_count = mip_levels;
+
+        image
     }
 }
 
@@ -197,7 +159,12 @@ fn setup(mut commands: Commands, level: Res<Level>, mut images: ResMut<Assets<Im
     let starting_point = level.bounds().min;
     let scale = chunk_size.as_vec2() * level.bounds().size() / texture_size.as_vec2();
 
-    commands.insert_resource(Textures::new(RgbImage::new(chunks_count.x, chunks_count.y)));
+    commands.insert_resource(Textures::new(
+        &mut *images,
+        &["bricks", "dirt", "grass", "guts", "stone", "tiles"],
+    ));
+
+    commands.insert_resource(DynamicLightmap::new(&mut *images, texture_size / 8));
 
     let mut terrain = commands.spawn((
         Name::new("Terrain"),
@@ -208,10 +175,6 @@ fn setup(mut commands: Commands, level: Res<Level>, mut images: ResMut<Assets<Im
     for y in 0..chunks_count.y {
         for x in 0..chunks_count.x {
             let pos = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * scale + starting_point;
-            let uv_rect = Rect {
-                min: UVec2::new(x, y).as_vec2() / chunks_count.as_vec2(),
-                max: UVec2::new(x + 1, y + 1).as_vec2() / chunks_count.as_vec2(),
-            };
             terrain.with_child((
                 Name::new(format!("Chunk ({x} {y})")),
                 Chunk(x, y),
@@ -227,12 +190,13 @@ fn init_chunks(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
     level: Res<Level>,
     textures: Res<Textures>,
+    lightmap: Res<DynamicLightmap>,
     chunks: Query<(Entity, &Chunk), Added<Chunk>>,
 ) {
-    let mut meshes_queue = Parallel::<Vec<(Entity, Mesh, PbrTexture)>>::default();
+    let mut meshes_queue = Parallel::<Vec<(Entity, Mesh, Image)>>::default();
 
     chunks.par_iter().for_each_init(
         || meshes_queue.borrow_local_mut(),
@@ -258,106 +222,57 @@ fn init_chunks(
                 (*y, *z) = (*z, -*y);
             }
 
-            let mut pbr_texture = PbrTexture::new();
+            let chunk_texture_size = (Chunk::MESH_SIZE * Chunk::MESH_SIZE) as usize;
 
-            let texture_map_scale = Chunk::MESH_SIZE as f32 / Chunk::TEXTURE_SIZE as f32;
-
-            for y in 0..Chunk::TEXTURE_SIZE {
-                for x in 0..Chunk::TEXTURE_SIZE {
-                    let map_pos = UVec2::new(
-                        (chunk_x as f32 + x as f32 * texture_map_scale) as u32,
-                        (chunk_y as f32 + y as f32 * texture_map_scale) as u32,
-                    )
-                    .min(texture_size - 1);
-
-                    let biome = biome_map.get_pixel(map_pos.x, map_pos.y).0;
-                    let height = height_map.get_pixel(map_pos.x, map_pos.y).0[0];
-
-                    let home = PbrTexture::gradient(
-                        x,
-                        y,
-                        height,
-                        &[
-                            (&textures.tiles, 0.0),
-                            (&textures.bricks, 0.1),
-                            (&textures.grass, 3.0),
-                        ],
-                    );
-
-                    let safe = PbrTexture::gradient(
-                        x,
-                        y,
-                        height,
-                        &[
-                            (&textures.tiles, 0.0),
-                            (&textures.grass, 0.1),
-                            (&textures.stone, 20.0),
-                        ],
-                    );
-
-                    let forest = PbrTexture::gradient(
-                        x,
-                        y,
-                        height,
-                        &[
-                            (&textures.dirt, 0.0),
-                            (&textures.grass, 0.1),
-                            (&textures.stone, 20.0),
-                        ],
-                    );
-
-                    let cave = PbrTexture::gradient(
-                        x,
-                        y,
-                        height,
-                        &[
-                            (&textures.dirt, 0.0),
-                            (&textures.guts, 0.1),
-                            (&textures.stone, 20.0),
-                        ],
-                    );
-
-                    pbr_texture.put_pixel(
-                        x,
-                        y,
-                        biome[BiomePixel::AREA_HOME] * home
-                            + biome[BiomePixel::AREA_SAFE] * safe
-                            + biome[BiomePixel::AREA_FOREST] * forest
-                            + biome[BiomePixel::AREA_CAVE] * cave,
-                    );
+            let biomes_total = BiomePixel::END_BIOME - BiomePixel::START_BIOME;
+            let mut biome_mask = vec![0; chunk_texture_size * biomes_total];
+            for y in 0..Chunk::MESH_SIZE {
+                for x in 0..Chunk::MESH_SIZE {
+                    let pos = UVec2::new(chunk_x + x, chunk_y + y).min(texture_size - 1);
+                    let biome = biome_map.get_pixel(pos.x, pos.y).0;
+                    let base_offset = (x + y * Chunk::MESH_SIZE) as usize;
+                    for biome_idx in 0..biomes_total {
+                        biome_mask[base_offset + chunk_texture_size * biome_idx] = (255.0
+                            * biome[BiomePixel::START_BIOME + biome_idx].min(1.0).max(0.0))
+                            as u8;
+                    }
                 }
             }
+            let biome_mask = Image::new(
+                Extent3d {
+                    width: Chunk::MESH_SIZE,
+                    height: Chunk::MESH_SIZE,
+                    depth_or_array_layers: biomes_total as u32,
+                },
+                TextureDimension::D2,
+                biome_mask,
+                TextureFormat::R8Unorm,
+                RenderAssetUsages::RENDER_WORLD,
+            );
 
-            let uv_0 = builder.uvs.clone();
             let mut mesh = builder.build();
             mesh.generate_tangents().unwrap();
-            mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, uv_0);
 
-            meshes.push((entity, mesh, pbr_texture));
+            meshes.push((entity, mesh, biome_mask));
         },
     );
 
-    for (entity, mesh, pbr_texture) in meshes_queue.drain() {
+    for (entity, mesh, biome_mask) in meshes_queue.drain() {
         commands.entity(entity).insert((
             Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color_texture: Some(images.add(Image::from_dynamic(
-                    pbr_texture.albedo.into(),
-                    true,
-                    RenderAssetUsages::RENDER_WORLD,
-                ))),
-                metallic_roughness_texture: Some(images.add(Image::from_dynamic(
-                    pbr_texture.roughness.into(),
-                    false,
-                    RenderAssetUsages::RENDER_WORLD,
-                ))),
-                normal_map_texture: Some(images.add(Image::from_dynamic(
-                    pbr_texture.normal.into(),
-                    false,
-                    RenderAssetUsages::RENDER_WORLD,
-                ))),
-                unlit: true,
-                ..Default::default()
+            MeshMaterial3d(materials.add(ExtendedMaterial {
+                base: StandardMaterial::default(),
+                extension: TerrainMaterial {
+                    bounds: {
+                        let bounds = level.bounds();
+                        Vec4::new(bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y)
+                    },
+                    lightmap: lightmap.0.clone_weak(),
+                    biome_mask: images.add(biome_mask),
+                    albedo: textures.albedo.clone_weak(),
+                    roughness: textures.roughness.clone_weak(),
+                    normal: textures.normal.clone_weak(),
+                },
             })),
         ));
     }
@@ -365,72 +280,70 @@ fn init_chunks(
 
 fn update_lightmap(
     level: Res<Level>,
-    mut textures: ResMut<Textures>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    lightmap: ResMut<DynamicLightmap>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, TerrainMaterial>>>,
     player: Single<&Transform, With<Player>>,
-    chunks: Query<(&Chunk, &MeshMaterial3d<StandardMaterial>)>,
     time: Res<Time>,
 ) {
-    let pos = ((player.translation.xz() - level.bounds().min) / level.bounds().size())
-        .clamp(Vec2::ZERO, Vec2::ONE);
-    let pos = (UVec2::from(textures.light_map.dimensions()).as_vec2() * pos).as_uvec2();
+    let Some(lightmap) = images.get_mut(&lightmap.0) else {
+        return;
+    };
 
-    for (x, y) in [
-        (pos.x as i32 - 1, pos.y as i32 - 1),
-        (pos.x as i32 - 1, pos.y as i32),
-        (pos.x as i32 - 1, pos.y as i32 + 1),
-        (pos.x as i32, pos.y as i32 - 1),
-        (pos.x as i32, pos.y as i32),
-        (pos.x as i32, pos.y as i32 + 1),
-        (pos.x as i32 + 1, pos.y as i32 - 1),
-        (pos.x as i32 + 1, pos.y as i32),
-        (pos.x as i32 + 1, pos.y as i32 + 1),
-    ] {
-        let dist = IVec2::new(x, y)
-            .as_vec2()
-            .distance(UVec2::new(pos.x, pos.y).as_vec2())
-            / SQRT_2;
-        if x >= 0
-            && x < textures.light_map.width() as i32
-            && y >= 0
-            && y < textures.light_map.height() as i32
-        {
-            let brightness = 255;//(255.0 * (1.0 - 0.5 * dist)) as u8;
-            textures.light_map.put_pixel(
-                x as u32,
-                y as u32,
-                Rgb([brightness, brightness, brightness]),
-            );
+    for _ in materials.iter_mut() {}
+
+    let radius = Vec2::splat(32.0) * lightmap.size_f32() / level.bounds().size();
+
+    let pos = (player.translation.xz() - level.bounds().min) / level.bounds().size();
+    let pos = pos.clamp(Vec2::ZERO, Vec2::ONE);
+    let pos = (lightmap.size_f32() * pos).as_ivec2();
+
+    for x in (pos.x - radius.x as i32)..=(pos.x + radius.x as i32) {
+        for y in (pos.y - radius.y as i32)..=(pos.y + radius.y as i32) {
+            let Ok(cur_val) = lightmap.get_color_at(x as u32, y as u32) else {
+                continue;
+            };
+
+            let rel_pos = (IVec2::new(x, y) - pos).as_vec2();
+            let dist2 = (rel_pos.powf(2.0) / radius.powf(2.0)).element_sum();
+
+            if dist2 <= 1.0 {
+                let cur_val = cur_val.to_linear().red.clamp(0.0, 1.0);
+                let target_val = 1.0 - dist2.powf(1.0 / 2.0);
+                let val = (cur_val + time.delta_secs() * 0.5).min(target_val.max(cur_val));
+                lightmap
+                    .set_color_at(x as u32, y as u32, Color::linear_rgba(val, val, val, 1.0))
+                    .unwrap();
+            }
         }
     }
 
-    let mut to_change = Parallel::<Vec<(Handle<StandardMaterial>, f32)>>::default();
-    chunks.par_iter().for_each_init(
-        || to_change.borrow_local_mut(),
-        |to_change, (Chunk(x, y), handle)| {
-            let brightness = textures.light_map.get_pixel(*x, *y).0[0] as f32 / 255.0;
-            let brightness = brightness * 0.5;
-            let material = materials.get(handle).unwrap();
-
-            let current_brightness = {
-                let color = material.base_color.to_srgba();
-                (color.red + color.green + color.blue) / 3.0
-            };
-
-            let brightness = (current_brightness + time.delta_secs() * 2.0)
-                .max(0.0)
-                .min(brightness);
-
-            if brightness != current_brightness {
-                to_change.push((handle.clone_weak(), brightness));
-            }
-        },
-    );
-
-    for (material, brightness) in to_change.drain() {
-        materials.get_mut(&material).unwrap().base_color =
-            Color::srgba(brightness, brightness, brightness, 1.0);
-    }
-
     // println!("{}", 1.0 / time.delta_secs_f64());
+}
+
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+struct TerrainMaterial {
+    #[uniform(100)]
+    bounds: Vec4,
+    #[texture(101)]
+    #[sampler(102)]
+    lightmap: Handle<Image>,
+    #[texture(103, dimension = "2d_array")]
+    #[sampler(104)]
+    biome_mask: Handle<Image>,
+    #[texture(105, dimension = "2d_array")]
+    #[sampler(106)]
+    albedo: Handle<Image>,
+    #[texture(107, dimension = "2d_array")]
+    #[sampler(108)]
+    roughness: Handle<Image>,
+    #[texture(109, dimension = "2d_array")]
+    #[sampler(110)]
+    normal: Handle<Image>,
+}
+
+impl MaterialExtension for TerrainMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/terrain.wgsl".into()
+    }
 }

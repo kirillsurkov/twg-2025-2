@@ -27,69 +27,15 @@ fn init(mut commands: Commands, players: Query<Entity, Added<Player>>) {
             .insert(Visibility::default())
             .with_child((
                 Camera3d::default(),
+                Projection::from(PerspectiveProjection {
+                    fov: 60.0_f32.to_radians(),
+                    ..Default::default()
+                }),
                 Transform::from_xyz(0.0, 1.7, 0.0).looking_to(-Vec3::Z, Vec3::Y),
                 DepthPrepass,
                 OcclusionCulling,
             ));
     }
-}
-
-fn segment_segment_isec(segment1: Segment2d, segment2: Segment2d) -> Option<Vec2> {
-    let p = segment1.point1();
-    let q = segment2.point1();
-    let r = segment1.scaled_direction();
-    let s = segment2.scaled_direction();
-
-    let r_cross_s = r.perp_dot(s);
-    let q_minus_p = q - p;
-
-    if r_cross_s != 0.0 {
-        let t = q_minus_p.perp_dot(s / r_cross_s);
-        let u = q_minus_p.perp_dot(r / r_cross_s);
-
-        let t_in_range = 0.0 <= t && t <= 1.0;
-        let u_in_range = 0.0 <= u && u <= 1.0;
-
-        if t_in_range && u_in_range {
-            return Some(p + t * r);
-        }
-    }
-
-    None
-}
-
-fn rect_segment_isec(rect: Rect, segment: Segment2d) -> Vec<(Vec2, Vec2)> {
-    [
-        Segment2d::new(
-            Vec2::new(rect.min.x, rect.min.y),
-            Vec2::new(rect.min.x, rect.max.y),
-        ),
-        Segment2d::new(
-            Vec2::new(rect.min.x, rect.max.y),
-            Vec2::new(rect.max.x, rect.max.y),
-        ),
-        Segment2d::new(
-            Vec2::new(rect.max.x, rect.max.y),
-            Vec2::new(rect.max.x, rect.min.y),
-        ),
-        Segment2d::new(
-            Vec2::new(rect.max.x, rect.min.y),
-            Vec2::new(rect.min.x, rect.min.y),
-        ),
-    ]
-    .into_iter()
-    .enumerate()
-    .filter_map(|(i, s)| {
-        let normal = match i {
-            0 => -Vec2::Y,
-            1 => -Vec2::X,
-            2 => Vec2::Y,
-            3 => Vec2::X,
-            _ => unreachable!(),
-        };
-        segment_segment_isec(segment, s).map(|isec| (isec, normal))
-    })
-    .collect()
 }
 
 fn world_to_texture(world_pos: Vec2, world_bounds: Rect, texture_size: UVec2) -> Vec2 {

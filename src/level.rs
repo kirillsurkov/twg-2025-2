@@ -9,7 +9,7 @@ use imageproc::{
     distance_transform::euclidean_squared_distance_transform,
     drawing::{draw_filled_rect_mut, draw_line_segment_mut},
     filter,
-    image::{GrayImage, ImageBuffer, Luma, LumaA, Pixel, Primitive, Rgb, RgbImage, Rgba},
+    image::{GrayImage, ImageBuffer, Luma, LumaA, Pixel, Primitive, Rgb, Rgba},
     rect,
 };
 use kiddo::{KdTree, SquaredEuclidean};
@@ -442,6 +442,8 @@ impl Default for BiomePixel {
 
 impl BiomePixel {
     pub const RADIUS: usize = 0;
+
+    pub const START_BIOME: usize = 1;
     pub const AREA_SAFE: usize = 1;
     pub const AREA_HOME: usize = 2;
     pub const AREA_FOREST: usize = 3;
@@ -449,6 +451,7 @@ impl BiomePixel {
     pub const AREA_ICE: usize = 5;
     pub const AREA_TEMPLE: usize = 6;
     pub const AREA_BOSS: usize = 7;
+    pub const END_BIOME: usize = 8;
 }
 
 impl Pixel for BiomePixel {
