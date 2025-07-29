@@ -1,7 +1,4 @@
-use std::{
-    collections::{BinaryHeap, HashSet},
-    f32::consts::E,
-};
+use std::{collections::BinaryHeap, f32::consts::E};
 
 use bevy::prelude::*;
 use fast_poisson::Poisson2D;
@@ -17,10 +14,11 @@ use petgraph::{
     Graph, Undirected,
     algo::min_spanning_tree,
     data::Element,
+    graph::NodeIndex,
     visit::{EdgeRef, IntoNodeReferences},
 };
 
-fn delaunay(points: &Vec<Vec2>) -> Graph<(), f32, Undirected> {
+fn delaunay(points: Vec<Vec2>) -> Graph<Vec2, f32, Undirected> {
     let mut graph = Graph::new_undirected();
 
     let triangulation = delaunator::triangulate(
@@ -34,8 +32,8 @@ fn delaunay(points: &Vec<Vec2>) -> Graph<(), f32, Undirected> {
     );
 
     let nodes = points
-        .iter()
-        .map(|_| graph.add_node(()))
+        .into_iter()
+        .map(|p| graph.add_node(p))
         .collect::<Vec<_>>();
 
     for i in 0..triangulation.halfedges.len() {
@@ -46,32 +44,33 @@ fn delaunay(points: &Vec<Vec2>) -> Graph<(), f32, Undirected> {
         let start_idx = triangulation.triangles[i];
         let end_idx = triangulation.triangles[delaunator::next_halfedge(i)];
 
-        graph.add_edge(
-            nodes[start_idx],
-            nodes[end_idx],
-            points[start_idx].distance(points[end_idx]),
-        );
+        let start_node = nodes[start_idx];
+        let end_node = nodes[end_idx];
+
+        let weight = graph
+            .node_weight(start_node)
+            .unwrap()
+            .distance(*graph.node_weight(end_node).unwrap());
+
+        graph.add_edge(start_node, end_node, weight);
     }
 
     graph
 }
 
-fn gabriel(
-    points: &Vec<Vec2>,
-    delaunay: &Graph<(), f32, Undirected>,
-) -> Graph<(), f32, Undirected> {
+fn gabriel(delaunay: &Graph<Vec2, f32, Undirected>) -> Graph<Vec2, f32, Undirected> {
     let mut graph = delaunay.clone();
     let mut to_remove = vec![];
     for edge in graph.edge_references() {
-        let p1 = points[edge.source().index()];
-        let p2 = points[edge.target().index()];
+        let p1 = delaunay.node_weight(edge.source()).unwrap();
+        let p2 = delaunay.node_weight(edge.target()).unwrap();
         let mid = (p1 + p2) * 0.5;
-        let radius = p1.distance(p2) * 0.5;
-        for (node, _) in graph.node_references() {
+        let radius = p1.distance(*p2) * 0.5;
+        for (node, point) in graph.node_references() {
             if [edge.source(), edge.target()].contains(&node) {
                 continue;
             }
-            if mid.distance(points[node.index()]) <= radius {
+            if mid.distance(*point) <= radius {
                 to_remove.push(edge.id());
                 break;
             }
@@ -83,30 +82,35 @@ fn gabriel(
     graph
 }
 
-fn graph(points: &Vec<Vec2>, ratio: f32) -> Vec<(usize, usize)> {
-    let mut edges = HashSet::new();
+fn graph(points: Vec<Vec2>, ratio: f32) -> Graph<Vec2, f32, Undirected> {
+    let mut graph = delaunay(points);
+    let gabriel = gabriel(&graph);
+    let mst = min_spanning_tree(&graph).collect::<Vec<_>>();
+    graph.clear_edges();
 
-    let delaunay = delaunay(points);
-    let gabriel = gabriel(points, &delaunay);
+    graph.extend_with_edges(mst.into_iter().filter_map(|e| match e {
+        Element::Edge {
+            source,
+            target,
+            weight,
+        } => Some((NodeIndex::new(source), NodeIndex::new(target), weight)),
+        _ => None,
+    }));
 
     let mut all_edges = gabriel.edge_references().collect::<Vec<_>>();
     all_edges.sort_by(|e1, e2| e2.weight().partial_cmp(e1.weight()).unwrap());
 
-    edges.extend(min_spanning_tree(&delaunay).filter_map(|e| match e {
-        Element::Edge { source, target, .. } => Some((source, target)),
-        _ => None,
-    }));
-
-    let target_cnt = edges.len() + (ratio * (all_edges.len() - edges.len()) as f32) as usize;
+    let target_cnt =
+        graph.edge_count() + (ratio * (all_edges.len() - graph.edge_count()) as f32) as usize;
 
     for edge in all_edges {
-        if edges.len() >= target_cnt {
+        if graph.edge_count() >= target_cnt {
             break;
         }
-        edges.insert((edge.source().index(), edge.target().index()));
+        graph.update_edge(edge.source(), edge.target(), *edge.weight());
     }
 
-    edges.into_iter().collect()
+    graph
 }
 
 pub enum LevelBiome {
@@ -134,8 +138,7 @@ impl LevelBiome {
 }
 
 pub struct LevelPart {
-    points: Vec<Vec2>,
-    edges: Vec<(usize, usize)>,
+    graph: Graph<Vec2, f32, Undirected>,
     bounds: Rect,
     pub radius: f32,
     biome: LevelBiome,
@@ -203,16 +206,13 @@ impl LevelPartBuilder {
                 .collect::<Vec<_>>(),
         };
 
-        let edges = graph(&points, self.fill_ratio);
-
         let bounds = Rect::from_center_size(
             Vec2::ZERO,
             Vec2::new(self.width as f32, self.height as f32) + Self::GAP * 2.0,
         );
 
         LevelPart {
-            points,
-            edges,
+            graph: graph(points, self.fill_ratio),
             bounds,
             radius,
             biome: self.biome,
@@ -229,10 +229,11 @@ pub enum PartAlign {
 
 #[derive(Resource)]
 pub struct Level {
+    graph: Graph<Vec2, f32, Undirected>,
+    kd: KdTree<f32, 2>,
     bounds: Rect,
     height_map: ImageBuffer<Luma<f32>, Vec<f32>>,
     biome_map: ImageBuffer<BiomePixel, Vec<f32>>,
-    kd: KdTree<f32, 2>,
 }
 
 impl Level {
@@ -248,17 +249,24 @@ impl Level {
         &self.biome_map
     }
 
-    pub fn kd(&self) -> &KdTree<f32, 2> {
-        &self.kd
+    pub fn nearest_one(&self, point: Vec2) -> Option<Vec2> {
+        let neighbour = self.kd.nearest_one::<SquaredEuclidean>(&[point.x, point.y]);
+        self.graph
+            .node_weights()
+            .nth(neighbour.item as usize)
+            .cloned()
     }
+
+    // pub fn kd(&self) -> &KdTree<f32, 2> {
+    //     &self.kd
+    // }
 }
 
 pub struct LevelBuilder {
+    graph: Graph<Vec2, f32, Undirected>,
     kd: KdTree<f32, 2>,
     bounds: Rect,
     parts: Vec<LevelPart>,
-    points: Vec<(usize, Vec2)>,
-    edges: Vec<(usize, usize)>,
 }
 
 impl LevelBuilder {
@@ -267,25 +275,18 @@ impl LevelBuilder {
 
     pub fn new() -> Self {
         Self {
+            graph: Graph::new_undirected(),
             kd: KdTree::new(),
             bounds: Rect {
                 min: Vec2::MAX,
                 max: Vec2::MIN,
             },
             parts: vec![],
-            points: vec![],
-            edges: vec![],
         }
     }
 
     pub fn add(&mut self, offset: Vec2, mut part: LevelPart) -> usize {
-        let idx_offset = self.points.len();
-        let points = part
-            .points
-            .iter()
-            .enumerate()
-            .map(|(i, p)| (i + idx_offset, p + offset))
-            .collect::<Vec<_>>();
+        let idx_offset = self.graph.node_count();
 
         part.bounds = Rect {
             min: part.bounds.min + offset,
@@ -299,35 +300,45 @@ impl LevelBuilder {
             self.bounds.max.y.max(part.bounds.max.y),
         );
 
-        self.edges.extend(
-            part.edges
-                .iter()
-                .map(|(start, end)| (start + idx_offset, end + idx_offset)),
-        );
+        for point in part.graph.node_weights_mut() {
+            *point += offset;
+            self.graph.add_node(*point);
+        }
 
-        let closest = points
-            .iter()
-            .flat_map(|(i, p)| {
+        self.graph
+            .extend_with_edges(part.graph.edge_references().map(|e| {
+                let source = e.source().index() + idx_offset;
+                let target = e.target().index() + idx_offset;
+                (NodeIndex::new(source), NodeIndex::new(target), e.weight())
+            }));
+
+        let closest = part
+            .graph
+            .node_references()
+            .flat_map(|(node, point)| {
                 self.kd
-                    .nearest_n::<SquaredEuclidean>(&[p.x, p.y], 2)
+                    .nearest_n::<SquaredEuclidean>(&[point.x, point.y], 2)
                     .into_iter()
-                    .map(move |n| (n, *i))
+                    .map(move |neighbour| (neighbour, node.index() + idx_offset))
             })
             .collect::<BinaryHeap<_>>()
             .into_sorted_vec();
 
-        for (neighbour, i) in closest.into_iter().take(2) {
-            self.edges.push((i, neighbour.item as usize));
+        for (neighbour, node) in closest.into_iter().take(2) {
+            self.graph.add_edge(
+                NodeIndex::new(node),
+                NodeIndex::new(neighbour.item as usize),
+                neighbour.distance.sqrt(),
+            );
         }
 
-        for (i, point) in &points {
-            self.kd.add(&[point.x, point.y], *i as u64);
+        for (node, point) in part.graph.node_references() {
+            self.kd
+                .add(&[point.x, point.y], (node.index() + idx_offset) as u64);
         }
 
-        let id = self.parts.len();
-        self.points.extend(points.into_iter().map(|(_, p)| (id, p)));
         self.parts.push(part);
-        id
+        self.parts.len() - 1
     }
 
     pub fn add_after(&mut self, after: usize, align: PartAlign, part: LevelPart) -> usize {
@@ -360,10 +371,19 @@ impl LevelBuilder {
 
         let mut image = GrayImage::from_pixel(width, height, Self::BLACK);
 
-        for (start, end) in &self.edges {
-            let start = self.points[*start].1 * scale - bounds.min.as_vec2();
-            let end = self.points[*end].1 * scale - bounds.min.as_vec2();
-            draw_line_segment_mut(&mut image, (start.x, start.y), (end.x, end.y), Self::WHITE);
+        for edge in self.graph.edge_references() {
+            let source = self.graph.node_weight(edge.source()).unwrap();
+            let source = source * scale - bounds.min.as_vec2();
+
+            let target = self.graph.node_weight(edge.target()).unwrap();
+            let target = target * scale - bounds.min.as_vec2();
+
+            draw_line_segment_mut(
+                &mut image,
+                (source.x, source.y),
+                (target.x, target.y),
+                Self::WHITE,
+            );
         }
 
         let distances = euclidean_squared_distance_transform(&image);
@@ -420,10 +440,11 @@ impl LevelBuilder {
         let biome_map = self.biome_map(scale);
         let height_map = self.height_map(scale, &biome_map);
         Level {
+            graph: self.graph,
+            kd: self.kd,
             bounds: self.bounds,
             height_map,
             biome_map,
-            kd: self.kd,
         }
     }
 }

@@ -1,5 +1,7 @@
 // #![windows_subsystem = "windows"]
 
+use core::f32;
+
 use bevy::{
     prelude::*,
     window::{CursorGrabMode, PrimaryWindow},
@@ -91,10 +93,7 @@ fn area_right(number: usize) -> LevelPart {
         .build()
 }
 
-fn setup(
-    mut commands: Commands,
-    mut window: Single<&mut Window, With<PrimaryWindow>>,
-) {
+fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
     let mut level_builder = LevelBuilder::new();
     let mut id = level_builder.add(Vec2::ZERO, area_start());
     for i in 1..=2 {
@@ -106,13 +105,7 @@ fn setup(
 
     let level = level_builder.build(4.0);
 
-    let mut player_xy = Vec2::MIN;
-    for (_, [x, y]) in level.kd().iter() {
-        if y >= player_xy.y {
-            player_xy.x = x;
-            player_xy.y = y;
-        }
-    }
+    let player_xy = level.nearest_one(Vec2::new(0.0, f32::MAX)).unwrap();
 
     commands.insert_resource(level);
 
