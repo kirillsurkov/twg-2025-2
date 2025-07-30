@@ -8,14 +8,20 @@ use bevy::{
 };
 // use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+use kiddo::SquaredEuclidean;
+use petgraph::{algo::dijkstra, graph::NodeIndex};
 
 use crate::{
+    enemies::EnemiesPlugin,
     level::{LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
+    model_loader::{LoadModel, ModelLoaderPlugin, ReadyAction},
     player::{Player, PlayerPlugin},
     terrain::TerrainPlugin,
 };
 
+mod enemies;
 mod level;
+mod model_loader;
 mod player;
 mod terrain;
 
@@ -28,11 +34,9 @@ fn main() {
             }),
             ..Default::default()
         }))
-        // .add_plugins(EguiPlugin::default())
-        // .add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(EguiPlugin::default())
+        .add_plugins(WorldInspectorPlugin::default())
         // .add_plugins(NoCameraPlayerPlugin)
-        .add_plugins(PlayerPlugin)
-        .add_plugins(TerrainPlugin)
         .insert_resource(AmbientLight {
             color: Color::BLACK,
             brightness: 0.0,
@@ -41,6 +45,10 @@ fn main() {
         .insert_resource(ClearColor(Color::srgba(0.02, 0.02, 0.02, 1.0)))
         .add_systems(Startup, setup)
         .add_systems(Update, grab_cursor)
+        .add_plugins(PlayerPlugin)
+        .add_plugins(TerrainPlugin)
+        .add_plugins(ModelLoaderPlugin)
+        .add_plugins(EnemiesPlugin)
         .run();
 }
 
@@ -93,7 +101,16 @@ fn area_right(number: usize) -> LevelPart {
         .build()
 }
 
-fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
+#[derive(Component)]
+pub struct FooMarker;
+
+fn setup(
+    mut commands: Commands,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut asset_server: ResMut<AssetServer>,
+) {
     let mut level_builder = LevelBuilder::new();
     let mut id = level_builder.add(Vec2::ZERO, area_start());
     for i in 1..=2 {
@@ -107,38 +124,45 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
 
     let player_xy = level.nearest_one(Vec2::new(0.0, f32::MAX)).unwrap();
 
+    let node = NodeIndex::new(
+        level
+            .kd
+            .nearest_one::<SquaredEuclidean>(&[player_xy.x, player_xy.y])
+            .item as usize,
+    );
+
+    let spawn_point = {
+        let node = level.graph.neighbors(node).next().unwrap();
+        let point = level.graph.node_weight(node).unwrap();
+        player_xy + (point - player_xy).normalize() * 5.0
+    };
+
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(1.0, 10.0, 1.0))),
+        MeshMaterial3d(materials.add(Color::WHITE)),
+        Transform::default(),
+        FooMarker,
+    ));
+
+    commands.spawn((
+        LoadModel::new("spider", ReadyAction::Enemy),
+        // SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("./models/spider.glb"))),
+        Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y).with_scale(Vec3::splat(3.0)),
+    ));
+
     commands.insert_resource(level);
 
     commands.spawn((Player, Transform::from_xyz(player_xy.x, 0.0, player_xy.y)));
 
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 200.0,
-            ..Default::default()
-        },
-        Transform::default().looking_to(Vec3::new(-1.0, -1.0, -1.0), Vec3::Y),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 200.0,
-            ..Default::default()
-        },
-        Transform::default().looking_to(Vec3::new(-1.0, -1.0, 1.0), Vec3::Y),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 200.0,
-            ..Default::default()
-        },
-        Transform::default().looking_to(Vec3::new(1.0, -1.0, -1.0), Vec3::Y),
-    ));
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 200.0,
-            ..Default::default()
-        },
-        Transform::default().looking_to(Vec3::new(1.0, -1.0, 1.0), Vec3::Y),
-    ));
+    for (x, y) in [(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)] {
+        commands.spawn((
+            DirectionalLight {
+                illuminance: 200.0,
+                ..Default::default()
+            },
+            Transform::default().looking_to(Vec3::new(x, -1.0, y), Vec3::Y),
+        ));
+    }
 
     window.cursor_options.grab_mode = CursorGrabMode::Confined;
     window.cursor_options.visible = false;

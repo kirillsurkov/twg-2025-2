@@ -229,8 +229,8 @@ pub enum PartAlign {
 
 #[derive(Resource)]
 pub struct Level {
-    graph: Graph<Vec2, f32, Undirected>,
-    kd: KdTree<f32, 2>,
+    pub graph: Graph<Vec2, f32, Undirected>,
+    pub kd: KdTree<f32, 2>,
     bounds: Rect,
     height_map: ImageBuffer<Luma<f32>, Vec<f32>>,
     biome_map: ImageBuffer<BiomePixel, Vec<f32>>,
@@ -249,17 +249,14 @@ impl Level {
         &self.biome_map
     }
 
-    pub fn nearest_one(&self, point: Vec2) -> Option<Vec2> {
+    pub fn nearest_one_id(&self, point: Vec2) -> NodeIndex {
         let neighbour = self.kd.nearest_one::<SquaredEuclidean>(&[point.x, point.y]);
-        self.graph
-            .node_weights()
-            .nth(neighbour.item as usize)
-            .cloned()
+        NodeIndex::new(neighbour.item as usize)
     }
 
-    // pub fn kd(&self) -> &KdTree<f32, 2> {
-    //     &self.kd
-    // }
+    pub fn nearest_one(&self, point: Vec2) -> Option<Vec2> {
+        self.graph.node_weight(self.nearest_one_id(point)).cloned()
+    }
 }
 
 pub struct LevelBuilder {
@@ -332,9 +329,31 @@ impl LevelBuilder {
             );
         }
 
-        for (node, point) in part.graph.node_references() {
-            self.kd
-                .add(&[point.x, point.y], (node.index() + idx_offset) as u64);
+        for edge in part.graph.edge_references() {
+            let source = part.graph.node_weight(edge.source()).unwrap();
+            let target = part.graph.node_weight(edge.target()).unwrap();
+            let dist2 = source.distance_squared(*target);
+            let step = (target - source).normalize_or_zero() * 5.0;
+            let mut point = *source;
+            loop {
+                let dist2_source = point.distance_squared(*source);
+                let dist2_target = point.distance_squared(*target);
+                if dist2_source >= dist2 {
+                    break;
+                }
+                let node = if dist2_source < dist2_target {
+                    edge.source()
+                } else {
+                    edge.target()
+                };
+                let node = (node.index() + idx_offset) as u64;
+                self.kd.add(&[point.x, point.y], node);
+                point += step;
+            }
+            self.kd.add(
+                &[target.x, target.y],
+                (edge.target().index() + idx_offset) as u64,
+            );
         }
 
         self.parts.push(part);

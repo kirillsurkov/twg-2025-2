@@ -13,7 +13,8 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, init);
-        app.add_systems(Update, update);
+        app.add_systems(Update, controller);
+        app.add_systems(Update, nearest_node);
     }
 }
 
@@ -42,7 +43,7 @@ fn world_to_texture(world_pos: Vec2, world_bounds: Rect, texture_size: UVec2) ->
     (world_pos - world_bounds.min) * texture_size.as_vec2() / world_bounds.size()
 }
 
-fn update(
+fn controller(
     window: Single<&Window, With<PrimaryWindow>>,
     player: Single<(Entity, &Children), With<Player>>,
     camera: Query<(), With<Camera>>,
@@ -136,4 +137,9 @@ fn update(
             transform_player.translation = desired_pos;
         }
     }
+}
+
+fn nearest_node(level: Res<Level>, player: Single<&Transform, With<Player>>) {
+    let player_pos = player.translation.xz();
+    let nearest = level.nearest_one(player_pos).unwrap();
 }

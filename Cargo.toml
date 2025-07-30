@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = "0.16.1"
+bevy = { version = "0.16.1", features = ["jpeg"] }
 bevy-inspector-egui = "0.32.0"
 bevy_flycam = "0.16.1"
 bevy_heightmap = "0.4.1"
+bresenham = "0.1.1"
 delaunator = "1.0.2"
 fast_poisson = "1.0.2"
 imageproc = "0.25.0"
