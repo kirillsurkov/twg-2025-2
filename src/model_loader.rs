@@ -91,7 +91,7 @@ fn load_model(
                         .entity(entity)
                         .remove::<WaitFor>()
                         .insert(Enemy::new(entity_anim_player))
-                        .insert(Physics::new(1.0, 5.0));
+                        .insert(Physics::new(0.5, 5.0));
                     commands
                         .entity(entity_anim_player)
                         .insert(AnimationGraphHandle(handle.clone()))

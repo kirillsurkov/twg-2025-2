@@ -489,7 +489,7 @@ impl LevelBuilder {
     ) -> ImageBuffer<LumaA<f32>, Vec<f32>> {
         let (width, height) = height_map.dimensions();
         let max_pos = UVec2::new(width, height).as_ivec2() - 1;
-        // let height_map = filter::gaussian_blur_f32(&height_map, 8.0);
+        let height_map = filter::gaussian_blur_f32(&height_map, 2.0);
         ImageBuffer::from_fn(width, height, |x, y| {
             let pos = UVec2::new(x, y).as_ivec2();
 
