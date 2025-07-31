@@ -2,12 +2,9 @@ use std::{collections::VecDeque, time::Duration};
 
 use bevy::prelude::*;
 use bresenham::Bresenham;
-use petgraph::{
-    algo::{astar, dijkstra},
-    graph::NodeIndex,
-};
+use petgraph::{algo::astar, graph::NodeIndex};
 
-use crate::{FooMarker, level::Level, player::Player};
+use crate::{level::Level, player::Player, terrain::Physics};
 
 pub mod spider;
 
@@ -57,17 +54,11 @@ fn animate(
     }
 }
 
-fn world_to_texture(world_pos: Vec2, world_bounds: Rect, texture_size: UVec2) -> Vec2 {
-    ((world_pos - world_bounds.min) / world_bounds.size()).clamp(Vec2::ZERO, Vec2::ONE)
-        * texture_size.as_vec2()
-}
-
 fn ai(
     level: Res<Level>,
-    time: Res<Time>,
     player: Single<Entity, With<Player>>,
-    mut enemies: Query<(Entity, &mut Enemy)>,
-    mut transforms: Query<&mut Transform>,
+    transforms: Query<&Transform>,
+    mut enemies: Query<(Entity, &mut Enemy, &mut Physics)>,
     mut last_player_nearest: Local<NodeIndex>,
 ) {
     let player_pos = transforms.get(*player).unwrap().translation.xz();
@@ -76,74 +67,78 @@ fn ai(
     let recalculate = player_nearest != *last_player_nearest;
     *last_player_nearest = player_nearest;
 
-    for (entity, mut enemy) in &mut enemies {
-        let pos = transforms.get(entity).unwrap().translation.xz();
-        if recalculate {
-            let nearest = level.nearest_one_id(pos);
-            let (_, path) = astar(
-                &level.graph,
-                nearest,
-                |id| id == player_nearest,
-                |e| *e.weight(),
-                |_| 0.0,
-            )
-            .unwrap();
-            enemy.path = path
-                .into_iter()
-                .map(|node| *level.graph.node_weight(node).unwrap())
-                .collect();
-        }
+    // for (entity, mut enemy, mut physics) in &mut enemies {
+    //     let pos = transforms.get(entity).unwrap().translation.xz();
+    //     let chase_player = player_pos.distance(pos) < 10.0;
 
-        let IVec2 {
-            x: x_from,
-            y: y_from,
-        } = world_to_texture(
-            pos,
-            level.bounds(),
-            UVec2::from(level.height_map().dimensions()),
-        )
-        .as_ivec2();
+    //     if recalculate {
+    //         let (_, path) = astar(
+    //             &level.graph,
+    //             level.nearest_one_id(pos),
+    //             |id| id == player_nearest,
+    //             |e| *e.weight(),
+    //             |_| 0.0,
+    //         )
+    //         .unwrap();
+    //         enemy.path = path
+    //             .into_iter()
+    //             .map(|node| *level.graph.node_weight(node).unwrap())
+    //             .collect();
+    //     }
 
-        let chase_player = player_pos.distance(pos) < 10.0;
+    //     let IVec2 {
+    //         x: x_from,
+    //         y: y_from,
+    //     } = world_to_texture(
+    //         pos,
+    //         level.bounds(),
+    //         UVec2::from(level.height_map().dimensions()),
+    //     )
+    //     .as_ivec2();
 
-        if chase_player {
-            enemy.path.push_back(player_pos);
-        }
+    //     if chase_player {
+    //         enemy.path.push_back(player_pos);
+    //     }
 
-        while let Some(pos) = enemy.path.pop_front() {
-            let IVec2 { x: x_to, y: y_to } = world_to_texture(
-                pos,
-                level.bounds(),
-                UVec2::from(level.height_map().dimensions()),
-            )
-            .as_ivec2();
+    //     while let Some(pos) = enemy.path.pop_front() {
+    //         let IVec2 { x: x_to, y: y_to } = world_to_texture(
+    //             pos,
+    //             level.bounds(),
+    //             UVec2::from(level.height_map().dimensions()),
+    //         )
+    //         .as_ivec2();
 
-            let can_pass = Bresenham::new(
-                (x_from as isize, y_from as isize),
-                (x_to as isize, y_to as isize),
-            )
-            .all(|(x, y)| level.height_map().get_pixel(x as u32, y as u32).0[0] == 0.0);
+    //         let mut can_pass = true;
+    //         for (x, y) in Bresenham::new(
+    //             (x_from as isize, y_from as isize),
+    //             (x_to as isize, y_to as isize),
+    //         ) {
+    //             can_pass &=
+    //                 level.height_map().get_pixel(x as u32, y as u32).0[0] < -physics.radius * 0.8;
+    //             if !can_pass {
+    //                 break;
+    //             }
+    //         }
 
-            if can_pass {
-                enemy.target = Some(pos);
-            } else {
-                enemy.path.push_front(pos);
-                break;
-            }
-        }
+    //         if can_pass {
+    //             enemy.target = Some(pos);
+    //         } else {
+    //             enemy.path.push_front(pos);
+    //             break;
+    //         }
+    //     }
 
-        if chase_player {
-            enemy.path.pop_back();
-        }
+    //     if chase_player {
+    //         enemy.path.pop_back();
+    //     }
 
-        if let Some(target) = enemy.target {
-            let dist = target.distance(pos);
-            let dir = (target - pos).normalize_or_zero();
-            let pos = pos + dir * dist.min(time.delta_secs() * 5.0);
-            let mut transform = transforms.get_mut(entity).unwrap();
-            transform.translation.x = pos.x;
-            transform.translation.z = pos.y;
-            transform.look_to(-dir.extend(0.0).xzy(), Vec3::Y);
-        }
-    }
+    //     if let Some(target) = enemy.target {
+    //         physics.move_vec = target - pos;
+    //         physics.look_to = -physics.move_vec;
+    //     } else {
+    //         physics.move_vec = Vec2::ZERO;
+    //     }
+
+    //     // println!("{player_pos:?}\n{:?}\n{:?}\n", physics.move_vec, enemy.path);
+    // }
 }

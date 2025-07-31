@@ -6,7 +6,9 @@ use imageproc::{
     distance_transform::euclidean_squared_distance_transform,
     drawing::{draw_filled_rect_mut, draw_line_segment_mut},
     filter,
-    image::{GrayImage, ImageBuffer, Luma, LumaA, Pixel, Primitive, Rgb, Rgba},
+    image::{
+        GrayImage, ImageBuffer, Luma, LumaA, Pixel, Primitive, Rgb, Rgba, imageops::sample_bilinear,
+    },
     rect,
 };
 use kiddo::{KdTree, SquaredEuclidean};
@@ -232,8 +234,10 @@ pub struct Level {
     pub graph: Graph<Vec2, f32, Undirected>,
     pub kd: KdTree<f32, 2>,
     bounds: Rect,
-    height_map: ImageBuffer<Luma<f32>, Vec<f32>>,
+    scale: f32,
     biome_map: ImageBuffer<BiomePixel, Vec<f32>>,
+    height_map: ImageBuffer<Luma<f32>, Vec<f32>>,
+    normal_map: ImageBuffer<LumaA<f32>, Vec<f32>>,
 }
 
 impl Level {
@@ -241,12 +245,36 @@ impl Level {
         self.bounds
     }
 
-    pub fn height_map(&self) -> &ImageBuffer<Luma<f32>, Vec<f32>> {
-        &self.height_map
+    pub fn texture_size(&self) -> Vec2 {
+        self.scale * self.bounds.size()
     }
 
-    pub fn biome_map(&self) -> &ImageBuffer<BiomePixel, Vec<f32>> {
-        &self.biome_map
+    pub fn pixel_size(&self) -> f32 {
+        1.0 / self.scale
+    }
+
+    pub fn world_to_uv(&self, world_pos: Vec2) -> Vec2 {
+        (world_pos - self.bounds.min).clamp(Vec2::ZERO, self.bounds.size()) / self.bounds.size()
+    }
+
+    pub fn world_to_texture(&self, world_pos: Vec2) -> Vec2 {
+        ((world_pos - self.bounds.min) * self.scale).clamp(Vec2::ZERO, self.texture_size() - 1.0)
+    }
+
+    pub fn biome(&self, world_pos: Vec2) -> BiomePixel {
+        let pos = self.world_to_texture(world_pos).as_uvec2();
+        *self.biome_map.get_pixel(pos.x, pos.y)
+    }
+
+    pub fn height(&self, world_pos: Vec2) -> f32 {
+        let pos = self.world_to_uv(world_pos);
+        sample_bilinear(&self.height_map, pos.x, pos.y).unwrap().0[0]
+    }
+
+    pub fn normal(&self, world_pos: Vec2) -> Vec2 {
+        let pos = self.world_to_uv(world_pos);
+        let normal = sample_bilinear(&self.normal_map, pos.x, pos.y).unwrap().0;
+        Vec2::from(normal).normalize_or_zero()
     }
 
     pub fn nearest_one_id(&self, point: Vec2) -> NodeIndex {
@@ -373,6 +401,41 @@ impl LevelBuilder {
         self.add(offset, part)
     }
 
+    fn biome_map(&self, scale: f32) -> ImageBuffer<BiomePixel, Vec<f32>> {
+        let bounds = IRect {
+            min: (self.bounds.min * scale).as_ivec2(),
+            max: (self.bounds.max * scale).as_ivec2(),
+        };
+
+        let UVec2 {
+            x: width,
+            y: height,
+        } = bounds.size().as_uvec2();
+
+        let mut biomes =
+            ImageBuffer::<BiomePixel, Vec<f32>>::from_pixel(width, height, BiomePixel::default());
+
+        for part in &self.parts {
+            let IVec2 { x, y } = (part.bounds.min * scale).as_ivec2() - bounds.min;
+            let UVec2 {
+                x: width,
+                y: height,
+            } = (part.bounds.size() * scale).as_uvec2();
+
+            let mut pixel = BiomePixel([0.0; BiomePixel::CHANNEL_COUNT as usize]);
+            pixel.0[BiomePixel::RADIUS] = part.radius;
+            pixel.0[part.biome.to_pixel_channel()] = 1.0;
+
+            draw_filled_rect_mut(
+                &mut biomes,
+                rect::Rect::at(x, y).of_size(width, height),
+                pixel,
+            );
+        }
+
+        filter::gaussian_blur_f32(&biomes, 8.0)
+    }
+
     fn height_map(
         &self,
         scale: f32,
@@ -416,54 +479,48 @@ impl LevelBuilder {
             let road_width = 0.25 * radius;
             let max_height = 0.5 * radius - road_width;
 
-            Luma([3.0 * (dist - road_width).max(0.0) / max_height.powf(0.75)])
+            Luma([3.0 * (dist - road_width) / max_height.powf(0.75)])
         })
     }
 
-    fn biome_map(&self, scale: f32) -> ImageBuffer<BiomePixel, Vec<f32>> {
-        let bounds = IRect {
-            min: (self.bounds.min * scale).as_ivec2(),
-            max: (self.bounds.max * scale).as_ivec2(),
-        };
+    fn normal_map(
+        &self,
+        height_map: &ImageBuffer<Luma<f32>, Vec<f32>>,
+    ) -> ImageBuffer<LumaA<f32>, Vec<f32>> {
+        let (width, height) = height_map.dimensions();
+        let max_pos = UVec2::new(width, height).as_ivec2() - 1;
+        // let height_map = filter::gaussian_blur_f32(&height_map, 8.0);
+        ImageBuffer::from_fn(width, height, |x, y| {
+            let pos = UVec2::new(x, y).as_ivec2();
 
-        let UVec2 {
-            x: width,
-            y: height,
-        } = bounds.size().as_uvec2();
+            let pos_r = IVec2::new(pos.x + 1, pos.y).min(max_pos).as_uvec2();
+            let pos_l = IVec2::new(pos.x - 1, pos.y).max(IVec2::ZERO).as_uvec2();
+            let pos_t = IVec2::new(pos.x, pos.y + 1).min(max_pos).as_uvec2();
+            let pos_b = IVec2::new(pos.x, pos.y - 1).max(IVec2::ZERO).as_uvec2();
 
-        let mut biomes =
-            ImageBuffer::<BiomePixel, Vec<f32>>::from_pixel(width, height, BiomePixel::default());
+            let dx_r = height_map.get_pixel(pos_r.x, pos_r.y).0[0];
+            let dx_l = height_map.get_pixel(pos_l.x, pos_l.y).0[0];
+            let dy_t = height_map.get_pixel(pos_t.x, pos_t.y).0[0];
+            let dy_b = height_map.get_pixel(pos_b.x, pos_b.y).0[0];
 
-        for part in &self.parts {
-            let IVec2 { x, y } = (part.bounds.min * scale).as_ivec2() - bounds.min;
-            let UVec2 {
-                x: width,
-                y: height,
-            } = (part.bounds.size() * scale).as_uvec2();
+            let normal = Vec2::new(dx_l - dx_r, dy_b - dy_t).normalize_or_zero();
 
-            let mut pixel = BiomePixel([0.0; BiomePixel::CHANNEL_COUNT as usize]);
-            pixel.0[BiomePixel::RADIUS] = part.radius;
-            pixel.0[part.biome.to_pixel_channel()] = 1.0;
-
-            draw_filled_rect_mut(
-                &mut biomes,
-                rect::Rect::at(x, y).of_size(width, height),
-                pixel,
-            );
-        }
-
-        filter::gaussian_blur_f32(&biomes, 8.0)
+            LumaA([normal.x, normal.y])
+        })
     }
 
     pub fn build(self, scale: f32) -> Level {
         let biome_map = self.biome_map(scale);
         let height_map = self.height_map(scale, &biome_map);
+        let normal_map = self.normal_map(&height_map);
         Level {
             graph: self.graph,
             kd: self.kd,
             bounds: self.bounds,
+            scale,
             height_map,
             biome_map,
+            normal_map,
         }
     }
 }

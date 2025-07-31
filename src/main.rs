@@ -101,16 +101,7 @@ fn area_right(number: usize) -> LevelPart {
         .build()
 }
 
-#[derive(Component)]
-pub struct FooMarker;
-
-fn setup(
-    mut commands: Commands,
-    mut window: Single<&mut Window, With<PrimaryWindow>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut asset_server: ResMut<AssetServer>,
-) {
+fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
     let mut level_builder = LevelBuilder::new();
     let mut id = level_builder.add(Vec2::ZERO, area_start());
     for i in 1..=2 {
@@ -138,21 +129,16 @@ fn setup(
     };
 
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1.0, 10.0, 1.0))),
-        MeshMaterial3d(materials.add(Color::WHITE)),
-        Transform::default(),
-        FooMarker,
-    ));
-
-    commands.spawn((
         LoadModel::new("spider", ReadyAction::Enemy),
-        // SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("./models/spider.glb"))),
         Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y).with_scale(Vec3::splat(3.0)),
     ));
 
     commands.insert_resource(level);
 
-    commands.spawn((Player, Transform::from_xyz(player_xy.x, 0.0, player_xy.y)));
+    commands.spawn((
+        Player::new(),
+        Transform::from_xyz(player_xy.x, 0.0, player_xy.y),
+    ));
 
     for (x, y) in [(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)] {
         commands.spawn((

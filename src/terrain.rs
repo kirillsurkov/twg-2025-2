@@ -21,18 +21,15 @@ impl Plugin for TerrainPlugin {
         app.add_plugins(MaterialPlugin::<
             ExtendedMaterial<StandardMaterial, TerrainMaterial>,
         >::default());
-        app.add_systems(Update, setup.run_if(resource_added::<Level>));
-        app.add_systems(Update, init_chunks.after(setup));
-        app.add_systems(
-            Update,
-            update_lightmap
-                .run_if(resource_exists::<Level>.and(resource_exists::<DynamicLightmap>)),
-        );
+        app.add_systems(Update, init.run_if(resource_added::<Level>));
+        app.add_systems(Update, init_chunks.after(init));
+        app.add_systems(Update, update_lightmap.after(init));
+        app.add_systems(Update, physics.after(init));
     }
 }
 
 #[derive(Component)]
-struct Chunk(u32, u32);
+struct Chunk;
 
 impl Chunk {
     const MESH_SIZE: u32 = 128;
@@ -158,8 +155,27 @@ impl Textures {
     }
 }
 
-fn setup(mut commands: Commands, level: Res<Level>, mut images: ResMut<Assets<Image>>) {
-    let texture_size = UVec2::from(level.height_map().dimensions());
+#[derive(Component)]
+pub struct Physics {
+    pub radius: f32,
+    pub speed: f32,
+    pub move_vec: Vec2,
+    pub look_to: Vec2,
+}
+
+impl Physics {
+    pub fn new(radius: f32, speed: f32) -> Self {
+        Self {
+            radius,
+            speed,
+            move_vec: Vec2::ZERO,
+            look_to: -Vec2::Y,
+        }
+    }
+}
+
+fn init(mut commands: Commands, level: Res<Level>, mut images: ResMut<Assets<Image>>) {
+    let texture_size = level.texture_size().as_uvec2();
     let chunk_size = UVec2::splat(Chunk::MESH_SIZE);
     let chunks_count = (texture_size / chunk_size) + (texture_size % chunk_size).min(UVec2::ONE);
     let starting_point = level.bounds().min;
@@ -182,8 +198,8 @@ fn setup(mut commands: Commands, level: Res<Level>, mut images: ResMut<Assets<Im
         for x in 0..chunks_count.x {
             let pos = Vec2::new(x as f32 + 0.5, y as f32 + 0.5) * scale + starting_point;
             terrain.with_child((
+                Chunk,
                 Name::new(format!("Chunk ({x} {y})")),
-                Chunk(x, y),
                 Transform::from_translation(pos.extend(0.0).xzy())
                     .with_scale(scale.extend(1.0).xzy()),
                 Visibility::default(),
@@ -200,29 +216,20 @@ fn init_chunks(
     level: Res<Level>,
     textures: Res<Textures>,
     lightmap: Res<DynamicLightmap>,
-    chunks: Query<(Entity, &Chunk), Added<Chunk>>,
+    chunks: Query<(Entity, &Transform), Added<Chunk>>,
 ) {
     let mut meshes_queue = Parallel::<Vec<(Entity, Mesh, Image)>>::default();
 
     chunks.par_iter().for_each_init(
         || meshes_queue.borrow_local_mut(),
-        |meshes, (entity, Chunk(chunk_x, chunk_y))| {
-            let UVec2 {
-                x: chunk_x,
-                y: chunk_y,
-            } = UVec2::new(*chunk_x, *chunk_y) * Chunk::MESH_SIZE;
+        |meshes, (entity, transform)| {
+            let chunk_pos = transform.translation.xz();
+            let chunk_scale = Chunk::MESH_SIZE as f32 * level.pixel_size();
 
-            let height_map = level.height_map();
-            let biome_map = level.biome_map();
-            let texture_size = UVec2::from(height_map.dimensions());
-
-            let mut builder =
-                MeshBuilder::grid(UVec2::splat(Chunk::MESH_SIZE), &|Vec2 { x, y }| {
-                    let Vec2 { x, y } = Vec2::new(0.5 + x, 0.5 - y);
-                    let UVec2 { x, y } = (Vec2::new(x, y) * Chunk::MESH_SIZE as f32).as_uvec2();
-                    let UVec2 { x, y } = UVec2::new(chunk_x + x, chunk_y + y).min(texture_size - 1);
-                    height_map.get_pixel(x, y).0[0]
-                });
+            let mut builder = MeshBuilder::grid(UVec2::splat(Chunk::MESH_SIZE), &|mut pos| {
+                pos.y = -pos.y;
+                level.height(chunk_pos + pos * chunk_scale).max(0.0)
+            });
 
             for [_, y, z] in &mut builder.positions {
                 (*y, *z) = (*z, -*y);
@@ -234,12 +241,12 @@ fn init_chunks(
             let mut biome_mask = vec![0; chunk_texture_size * biomes_total];
             for y in 0..Chunk::MESH_SIZE {
                 for x in 0..Chunk::MESH_SIZE {
-                    let pos = UVec2::new(chunk_x + x, chunk_y + y).min(texture_size - 1);
-                    let biome = biome_map.get_pixel(pos.x, pos.y).0;
+                    let pos = UVec2::new(x, y).as_vec2() / (Chunk::MESH_SIZE - 1) as f32 - 0.5;
+                    let biome = level.biome(chunk_pos + pos * chunk_scale).0;
                     let base_offset = (x + y * Chunk::MESH_SIZE) as usize;
                     for biome_idx in 0..biomes_total {
                         biome_mask[base_offset + chunk_texture_size * biome_idx] = (255.0
-                            * biome[BiomePixel::START_BIOME + biome_idx].min(1.0).max(0.0))
+                            * biome[BiomePixel::START_BIOME + biome_idx].clamp(0.0, 1.0))
                             as u8;
                     }
                 }
@@ -323,8 +330,22 @@ fn update_lightmap(
             }
         }
     }
+}
 
-    // println!("{}", 1.0 / time.delta_secs_f64());
+fn physics(level: Res<Level>, time: Res<Time>, mut queries: Query<(&Physics, &mut Transform)>) {
+    for (physics, mut transform) in &mut queries {
+        let speed = physics.move_vec.length().min(1.0) * physics.speed;
+        let move_vec = physics.move_vec.normalize_or_zero();
+
+        let mut desired_pos = transform.translation.xz() + move_vec * time.delta_secs() * speed;
+        let penetration = physics.radius + level.height(desired_pos);
+        desired_pos += level.normal(desired_pos) * penetration.max(0.0);
+
+        transform.translation.x = desired_pos.x;
+        transform.translation.z = desired_pos.y;
+
+        transform.look_to(physics.look_to.extend(0.0).xzy(), Vec3::Y);
+    }
 }
 
 #[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]

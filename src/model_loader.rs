@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::enemies::Enemy;
+use crate::{enemies::Enemy, terrain::Physics};
 
 pub struct ModelLoaderPlugin;
 
@@ -90,7 +90,8 @@ fn load_model(
                     commands
                         .entity(entity)
                         .remove::<WaitFor>()
-                        .insert(Enemy::new(entity_anim_player));
+                        .insert(Enemy::new(entity_anim_player))
+                        .insert(Physics::new(1.0, 5.0));
                     commands
                         .entity(entity_anim_player)
                         .insert(AnimationGraphHandle(handle.clone()))
