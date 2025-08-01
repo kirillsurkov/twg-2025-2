@@ -7,6 +7,7 @@ use bevy::{
     render::view::RenderLayers,
     window::{CursorGrabMode, PrimaryWindow, WindowMode},
 };
+use bevy_hanabi::HanabiPlugin;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use kiddo::SquaredEuclidean;
 use petgraph::graph::NodeIndex;
@@ -34,11 +35,12 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Tuonela".to_string(),
-                mode: WindowMode::BorderlessFullscreen(MonitorSelection::Current),
+                // mode: WindowMode::BorderlessFullscreen(MonitorSelection::Current),
                 ..Default::default()
             }),
             ..Default::default()
         }))
+        .add_plugins(HanabiPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(WorldInspectorPlugin::default())
         .insert_resource(AmbientLight {

@@ -237,7 +237,7 @@ pub struct Level {
     scale: f32,
     biome_map: ImageBuffer<BiomePixel, Vec<f32>>,
     height_map: ImageBuffer<Luma<f32>, Vec<f32>>,
-    normal_map: ImageBuffer<LumaA<f32>, Vec<f32>>,
+    normal_map: ImageBuffer<Rgb<f32>, Vec<f32>>,
 }
 
 impl Level {
@@ -271,10 +271,31 @@ impl Level {
         sample_bilinear(&self.height_map, pos.x, pos.y).unwrap().0[0]
     }
 
-    pub fn normal(&self, world_pos: Vec2) -> Vec2 {
+    pub fn normal_3d(&self, world_pos: Vec2) -> Vec3 {
         let pos = self.world_to_uv(world_pos);
-        let normal = sample_bilinear(&self.normal_map, pos.x, pos.y).unwrap().0;
-        Vec2::from(normal).normalize_or_zero()
+        if sample_bilinear(&self.height_map, pos.x, pos.y).unwrap().0[0] <= 0.0 {
+            Vec3::Y
+        } else {
+            Vec3::from(sample_bilinear(&self.normal_map, pos.x, pos.y).unwrap().0)
+        }
+    }
+
+    pub fn normal_2d(&self, world_pos: Vec2) -> Vec2 {
+        let pos = self.world_to_uv(world_pos);
+        let [x, _, z] = sample_bilinear(&self.normal_map, pos.x, pos.y).unwrap().0;
+        Vec2::new(x, z).normalize_or_zero()
+    }
+
+    pub fn binary_search(&self, mut min: Vec3, mut max: Vec3, binary_steps: u32) -> Vec3 {
+        for _ in 0..binary_steps {
+            let mid = (min + max) / 2.0;
+            if self.height(mid.xz()).max(0.0) < mid.y {
+                min = mid;
+            } else {
+                max = mid;
+            }
+        }
+        max
     }
 
     pub fn raycast(
@@ -288,18 +309,7 @@ impl Level {
         let mut pos = origin;
         while pos.distance_squared(origin) < max_dist * max_dist {
             if self.height(pos.xz()).max(0.0) > pos.y {
-                let mut pos_min = pos - dir * step;
-                let mut pos_max = pos;
-                for _ in 0..binary_steps {
-                    let pos_mid = (pos_min + pos_max) / 2.0;
-                    if self.height(pos_mid.xz()).max(0.0) < pos_mid.y {
-                        pos_min = pos_mid;
-                    } else {
-                        pos_max = pos_mid;
-                    }
-                }
-                pos = pos_max;
-                break;
+                return self.binary_search(pos - dir * step, pos, binary_steps);
             }
             pos += dir * step;
         }
@@ -514,11 +524,12 @@ impl LevelBuilder {
 
     fn normal_map(
         &self,
+        scale: f32,
         height_map: &ImageBuffer<Luma<f32>, Vec<f32>>,
-    ) -> ImageBuffer<LumaA<f32>, Vec<f32>> {
+    ) -> ImageBuffer<Rgb<f32>, Vec<f32>> {
         let (width, height) = height_map.dimensions();
         let max_pos = UVec2::new(width, height).as_ivec2() - 1;
-        let height_map = filter::gaussian_blur_f32(&height_map, 2.0);
+        // let height_map = filter::gaussian_blur_f32(&height_map, 2.0);
         ImageBuffer::from_fn(width, height, |x, y| {
             let pos = UVec2::new(x, y).as_ivec2();
 
@@ -527,21 +538,24 @@ impl LevelBuilder {
             let pos_t = IVec2::new(pos.x, pos.y + 1).min(max_pos).as_uvec2();
             let pos_b = IVec2::new(pos.x, pos.y - 1).max(IVec2::ZERO).as_uvec2();
 
-            let dx_r = height_map.get_pixel(pos_r.x, pos_r.y).0[0];
-            let dx_l = height_map.get_pixel(pos_l.x, pos_l.y).0[0];
-            let dy_t = height_map.get_pixel(pos_t.x, pos_t.y).0[0];
-            let dy_b = height_map.get_pixel(pos_b.x, pos_b.y).0[0];
+            let h_r = height_map.get_pixel(pos_r.x, pos_r.y).0[0];
+            let h_l = height_map.get_pixel(pos_l.x, pos_l.y).0[0];
+            let h_t = height_map.get_pixel(pos_t.x, pos_t.y).0[0];
+            let h_b = height_map.get_pixel(pos_b.x, pos_b.y).0[0];
 
-            let normal = Vec2::new(dx_l - dx_r, dy_b - dy_t).normalize_or_zero();
+            let dh_dx = (h_r - h_l) * scale * 0.5;
+            let dh_dy = (h_t - h_b) * scale * 0.5;
 
-            LumaA([normal.x, normal.y])
+            Rgb(Vec3::new(-dh_dx, 1.0, -dh_dy)
+                .normalize_or_zero()
+                .to_array())
         })
     }
 
     pub fn build(self, scale: f32) -> Level {
         let biome_map = self.biome_map(scale);
         let height_map = self.height_map(scale, &biome_map);
-        let normal_map = self.normal_map(&height_map);
+        let normal_map = self.normal_map(scale, &height_map);
         Level {
             graph: self.graph,
             kd: self.kd,

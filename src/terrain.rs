@@ -339,7 +339,7 @@ fn physics(level: Res<Level>, time: Res<Time>, mut queries: Query<(&Physics, &mu
 
         let mut desired_pos = transform.translation.xz() + move_vec * time.delta_secs() * speed;
         let penetration = physics.radius + level.height(desired_pos);
-        desired_pos += level.normal(desired_pos) * penetration.max(0.0);
+        desired_pos += level.normal_2d(desired_pos) * penetration.max(0.0);
 
         transform.translation.x = desired_pos.x;
         transform.translation.z = desired_pos.y;

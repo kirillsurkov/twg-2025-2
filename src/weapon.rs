@@ -2,7 +2,7 @@ use std::{f32::consts::TAU, time::Duration};
 
 use bevy::{prelude::*, render::view::RenderLayers};
 
-use crate::{level::Level, player::Player, projectile::Projectile};
+use crate::{level::Level, player::Player, projectile::bullet::Bullet, terrain::Physics};
 
 pub mod zapper;
 
@@ -161,10 +161,6 @@ fn update(
     }
 }
 
-fn fmod(a: f32, b: f32) -> f32 {
-    ((a % b) + b) % b
-}
-
 fn animate(
     weapons: Query<&Weapon>,
     mut transforms: Query<&mut Transform>,
@@ -215,18 +211,15 @@ fn animate(
 
 fn shoot(
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut weapons: Query<&mut Weapon>,
     transforms: Query<(&Transform, &GlobalTransform)>,
     cameras: Query<(&Camera, &GlobalTransform)>,
-    player: Single<&Player>,
+    player: Single<(&Player, &Physics)>,
     level: Res<Level>,
     time: Res<Time>,
 ) {
-    let Ok((camera, camera_transform)) = cameras.get(player.weapon_camera) else {
-        return;
-    };
+    let (player, player_physics) = player.into_inner();
+    let (camera, camera_transform) = cameras.get(player.weapon_camera).unwrap();
 
     let isec = level.raycast(
         camera_transform.translation(),
@@ -247,13 +240,12 @@ fn shoot(
             let shoot_point = camera
                 .viewport_to_world(camera_transform, shoot_point)
                 .unwrap();
-            let shoot_point = shoot_point.origin;
+            let shoot_point =
+                shoot_point.origin + shoot_point.direction * player_physics.radius * 0.5;
             println!("SHOOT! {isec}");
             commands.spawn((
-                Mesh3d(meshes.add(Sphere::new(0.01))),
-                MeshMaterial3d(materials.add(Color::WHITE)),
                 Transform::from_translation(shoot_point).looking_at(isec, Vec3::Y),
-                Projectile,
+                Bullet,
             ));
             weapon.shoot_timer += weapon.shoot_delay;
         }
