@@ -13,7 +13,7 @@ impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, animate);
         app.add_systems(Update, ai);
-        app.add_systems(Update, spider::update);
+        app.add_systems(Update, spider::setup);
     }
 }
 
@@ -37,22 +37,36 @@ impl Enemy {
 }
 
 fn animate(
-    enemies: Query<&Enemy>,
-    mut anim_players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+    enemies: Query<(&Enemy, &Physics)>,
+    mut animation: Query<(
+        &mut AnimationPlayer,
+        &mut AnimationTransitions,
+        &AnimationGraphHandle,
+    )>,
+    graphs: Res<Assets<AnimationGraph>>,
+    clips: Res<Assets<AnimationClip>>,
 ) {
     let idle = AnimationNodeIndex::new(1);
     let walk = AnimationNodeIndex::new(2);
     let attack = AnimationNodeIndex::new(3);
     let death = AnimationNodeIndex::new(4);
 
-    for enemy in enemies {
-        let (mut player, mut transition) = anim_players.get_mut(enemy.anim_player).unwrap();
+    for (enemy, physics) in enemies {
+        let (mut player, mut transition, graph) = animation.get_mut(enemy.anim_player).unwrap();
 
         let index = if enemy.target.is_some() { walk } else { idle };
+
+        let AnimationNodeType::Clip(clip) =
+            &graphs.get(graph).unwrap().get(index).unwrap().node_type
+        else {
+            continue;
+        };
+        let clip = clips.get(clip).unwrap();
 
         if !player.is_playing_animation(index) {
             transition
                 .play(&mut player, index, Duration::from_millis(250))
+                .set_speed(if index == walk { physics.speed } else { 1.0 })
                 .repeat();
         }
     }

@@ -5,18 +5,18 @@ use core::f32;
 use bevy::{
     prelude::*,
     render::view::RenderLayers,
-    window::{CursorGrabMode, PrimaryWindow},
+    window::{CursorGrabMode, PrimaryWindow, WindowMode},
 };
-// use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 use kiddo::SquaredEuclidean;
-use petgraph::{algo::dijkstra, graph::NodeIndex};
+use petgraph::graph::NodeIndex;
 
 use crate::{
     enemy::{EnemyPlugin, spider::Spider},
     level::{LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
-    model_loader::{LoadModel, ModelLoaderPlugin, ReadyAction},
+    model_loader::ModelLoaderPlugin,
     player::{Player, PlayerPlugin},
+    projectile::ProjectilePlugin,
     terrain::TerrainPlugin,
     weapon::{WeaponPlugin, zapper::Zapper},
 };
@@ -25,6 +25,7 @@ mod enemy;
 mod level;
 mod model_loader;
 mod player;
+mod projectile;
 mod terrain;
 mod weapon;
 
@@ -33,13 +34,13 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Tuonela".to_string(),
+                mode: WindowMode::BorderlessFullscreen(MonitorSelection::Current),
                 ..Default::default()
             }),
             ..Default::default()
         }))
         .add_plugins(EguiPlugin::default())
         .add_plugins(WorldInspectorPlugin::default())
-        // .add_plugins(NoCameraPlayerPlugin)
         .insert_resource(AmbientLight {
             color: Color::BLACK,
             brightness: 0.0,
@@ -53,6 +54,7 @@ fn main() {
         .add_plugins(ModelLoaderPlugin)
         .add_plugins(EnemyPlugin)
         .add_plugins(WeaponPlugin)
+        .add_plugins(ProjectilePlugin)
         .run();
 }
 

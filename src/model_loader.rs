@@ -13,7 +13,7 @@ impl Plugin for ModelLoaderPlugin {
 #[derive(Component, Clone, Copy)]
 pub enum ReadyAction {
     Enemy,
-    Weapon(Vec3),
+    Weapon { offset: Vec3, shoot_delay: f32 },
 }
 
 #[derive(Component)]
@@ -26,11 +26,13 @@ pub struct LoadModel {
 #[derive(Component)]
 enum WaitFor {
     Gltf {
+        name: String,
         gltf_handle: Handle<Gltf>,
         action: ReadyAction,
         scale: Vec3,
     },
     Scene {
+        name: String,
         scene: Entity,
         graph_handle: Handle<AnimationGraph>,
         action: ReadyAction,
@@ -56,6 +58,8 @@ fn load_model(
     pending: Query<(Entity, &WaitFor)>,
     children: Query<&Children>,
     anim_players: Query<&AnimationPlayer>,
+    names: Query<&Name>,
+    transforms: Query<&Transform>,
 ) {
     for (
         entity,
@@ -70,6 +74,7 @@ fn load_model(
             .entity(entity)
             .remove::<LoadModel>()
             .insert(WaitFor::Gltf {
+                name: name.clone(),
                 gltf_handle: assets.load(format!("./models/{name}.glb")),
                 action: *action,
                 scale: *scale,
@@ -79,6 +84,7 @@ fn load_model(
     for (entity, wait_for) in pending {
         match wait_for {
             WaitFor::Gltf {
+                name,
                 gltf_handle,
                 action,
                 scale,
@@ -94,6 +100,7 @@ fn load_model(
                         .entity(entity)
                         .insert((
                             WaitFor::Scene {
+                                name: name.clone(),
                                 scene,
                                 graph_handle: graphs.add(
                                     match action {
@@ -103,7 +110,7 @@ fn load_model(
                                             gltf.named_animations["attack"].clone(),
                                             gltf.named_animations["death"].clone(),
                                         ]),
-                                        ReadyAction::Weapon(_) => AnimationGraph::from_clips([
+                                        ReadyAction::Weapon { .. } => AnimationGraph::from_clips([
                                             gltf.named_animations["idle"].clone(),
                                             gltf.named_animations["shoot"].clone(),
                                         ]),
@@ -118,6 +125,7 @@ fn load_model(
                 }
             }
             WaitFor::Scene {
+                name,
                 scene,
                 graph_handle,
                 action,
@@ -143,7 +151,10 @@ fn load_model(
                             .insert(Enemy::new(entity_anim_player))
                             .insert(Physics::new(0.5, 5.0));
                     }
-                    ReadyAction::Weapon(offset) => {
+                    ReadyAction::Weapon {
+                        offset,
+                        shoot_delay,
+                    } => {
                         let Some(entity_anim_player) = children
                             .iter_descendants(entity)
                             .chain([entity])
@@ -157,10 +168,26 @@ fn load_model(
                             .insert(AnimationGraphHandle(graph_handle.clone()))
                             .insert(AnimationTransitions::new());
 
+                        let Some(shoot_point) = children
+                            .iter_descendants(entity)
+                            .chain([entity])
+                            .find(|e| {
+                                names
+                                    .get(*e)
+                                    .map(|n| n.as_str() == "shoot_point")
+                                    .unwrap_or_default()
+                            })
+                            .and_then(|e| transforms.get(e).map(|t| t.translation).ok())
+                        else {
+                            panic!("Weapon {name} doesn't have a shoot point");
+                        };
+
                         commands.entity(entity).insert(Weapon::new(
                             *scene,
                             entity_anim_player,
                             *offset,
+                            shoot_point,
+                            *shoot_delay,
                         ));
                     }
                 }

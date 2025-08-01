@@ -2,7 +2,7 @@ use std::{f32::consts::TAU, time::Duration};
 
 use bevy::{prelude::*, render::view::RenderLayers};
 
-use crate::player::Player;
+use crate::{level::Level, player::Player, projectile::Projectile};
 
 pub mod zapper;
 
@@ -15,7 +15,7 @@ impl Plugin for WeaponPlugin {
         app.add_systems(Update, shoot);
         app.add_systems(Update, drop_weapon.after(update));
         app.add_systems(Update, pick_weapon.after(update));
-        app.add_systems(Update, zapper::update);
+        app.add_systems(Update, zapper::setup);
     }
 }
 
@@ -26,19 +26,31 @@ enum State {
 
 #[derive(Component)]
 pub struct Weapon {
+    state: State,
     model: Entity,
     anim_player: Entity,
     offset: Vec3,
-    state: State,
+    shoot_point: Vec3,
+    shoot_delay: f32,
+    shoot_timer: f32,
 }
 
 impl Weapon {
-    pub fn new(model: Entity, anim_player: Entity, offset: Vec3) -> Self {
+    pub fn new(
+        model: Entity,
+        anim_player: Entity,
+        offset: Vec3,
+        shoot_point: Vec3,
+        shoot_delay: f32,
+    ) -> Self {
         Self {
+            state: State::OnGround,
             model,
             anim_player,
             offset,
-            state: State::OnGround,
+            shoot_point,
+            shoot_delay,
+            shoot_timer: 0.0,
         }
     }
 }
@@ -149,10 +161,14 @@ fn update(
     }
 }
 
+fn fmod(a: f32, b: f32) -> f32 {
+    ((a % b) + b) % b
+}
+
 fn animate(
     weapons: Query<&Weapon>,
     mut transforms: Query<&mut Transform>,
-    mut anim_players: Query<(
+    mut animation: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
         &AnimationGraphHandle,
@@ -165,7 +181,7 @@ fn animate(
     let shoot = AnimationNodeIndex::new(2);
 
     for weapon in weapons {
-        let (mut player, mut transition, graph) = anim_players.get_mut(weapon.anim_player).unwrap();
+        let (mut player, mut transition, graph) = animation.get_mut(weapon.anim_player).unwrap();
 
         let AnimationNodeType::Clip(clip) =
             &graphs.get(graph).unwrap().get(shoot).unwrap().node_type
@@ -181,8 +197,9 @@ fn animate(
 
         if !player.is_playing_animation(index) {
             transition
-                .play(&mut player, index, Duration::from_millis(250))
-                .set_speed(clip.duration())
+                .play(&mut player, index, Duration::from_millis(50))
+                .seek_to(clip.duration() * 0.5)
+                .set_speed(clip.duration() / weapon.shoot_delay)
                 .repeat();
         }
 
@@ -196,4 +213,50 @@ fn animate(
     }
 }
 
-fn shoot() {}
+fn shoot(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut weapons: Query<&mut Weapon>,
+    transforms: Query<(&Transform, &GlobalTransform)>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    player: Single<&Player>,
+    level: Res<Level>,
+    time: Res<Time>,
+) {
+    let Ok((camera, camera_transform)) = cameras.get(player.weapon_camera) else {
+        return;
+    };
+
+    let isec = level.raycast(
+        camera_transform.translation(),
+        camera_transform.forward(),
+        1.0,
+        100.0,
+        8,
+    );
+
+    for mut weapon in &mut weapons {
+        if matches!(weapon.state, State::InHands { shoot: true }) && weapon.shoot_timer <= 0.0 {
+            let (transform, global_transform) = transforms.get(weapon.model).unwrap();
+            let shoot_point = global_transform
+                .transform_point(weapon.shoot_point * transform.scale - weapon.offset);
+            let shoot_point = camera
+                .world_to_viewport(camera_transform, shoot_point)
+                .unwrap();
+            let shoot_point = camera
+                .viewport_to_world(camera_transform, shoot_point)
+                .unwrap();
+            let shoot_point = shoot_point.origin;
+            println!("SHOOT! {isec}");
+            commands.spawn((
+                Mesh3d(meshes.add(Sphere::new(0.01))),
+                MeshMaterial3d(materials.add(Color::WHITE)),
+                Transform::from_translation(shoot_point).looking_at(isec, Vec3::Y),
+                Projectile,
+            ));
+            weapon.shoot_timer += weapon.shoot_delay;
+        }
+        weapon.shoot_timer = (weapon.shoot_timer - time.delta_secs()).max(0.0);
+    }
+}

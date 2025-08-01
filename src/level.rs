@@ -277,6 +277,35 @@ impl Level {
         Vec2::from(normal).normalize_or_zero()
     }
 
+    pub fn raycast(
+        &self,
+        origin: Vec3,
+        dir: Dir3,
+        step: f32,
+        max_dist: f32,
+        binary_steps: u32,
+    ) -> Vec3 {
+        let mut pos = origin;
+        while pos.distance_squared(origin) < max_dist * max_dist {
+            if self.height(pos.xz()).max(0.0) > pos.y {
+                let mut pos_min = pos - dir * step;
+                let mut pos_max = pos;
+                for _ in 0..binary_steps {
+                    let pos_mid = (pos_min + pos_max) / 2.0;
+                    if self.height(pos_mid.xz()).max(0.0) < pos_mid.y {
+                        pos_min = pos_mid;
+                    } else {
+                        pos_max = pos_mid;
+                    }
+                }
+                pos = pos_max;
+                break;
+            }
+            pos += dir * step;
+        }
+        pos
+    }
+
     pub fn nearest_one_id(&self, point: Vec2) -> NodeIndex {
         let neighbour = self.kd.nearest_one::<SquaredEuclidean>(&[point.x, point.y]);
         NodeIndex::new(neighbour.item as usize)
