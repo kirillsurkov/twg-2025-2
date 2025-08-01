@@ -7,9 +7,9 @@ use crate::{level::Level, player::Player, terrain::Physics};
 
 pub mod spider;
 
-pub struct EnemiesPlugin;
+pub struct EnemyPlugin;
 
-impl Plugin for EnemiesPlugin {
+impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, animate);
         app.add_systems(Update, ai);
@@ -40,14 +40,15 @@ fn animate(
     enemies: Query<&Enemy>,
     mut anim_players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
+    let idle = AnimationNodeIndex::new(1);
+    let walk = AnimationNodeIndex::new(2);
+    let attack = AnimationNodeIndex::new(3);
+    let death = AnimationNodeIndex::new(4);
+
     for enemy in enemies {
         let (mut player, mut transition) = anim_players.get_mut(enemy.anim_player).unwrap();
 
-        let index = if enemy.target.is_some() {
-            AnimationNodeIndex::new(2)
-        } else {
-            AnimationNodeIndex::new(1)
-        };
+        let index = if enemy.target.is_some() { walk } else { idle };
 
         if !player.is_playing_animation(index) {
             transition

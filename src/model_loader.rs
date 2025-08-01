@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::{enemies::Enemy, terrain::Physics};
+use crate::{enemy::Enemy, terrain::Physics, weapon::Weapon};
 
 pub struct ModelLoaderPlugin;
 
@@ -13,25 +13,36 @@ impl Plugin for ModelLoaderPlugin {
 #[derive(Component, Clone, Copy)]
 pub enum ReadyAction {
     Enemy,
+    Weapon(Vec3),
 }
 
 #[derive(Component)]
 pub struct LoadModel {
     name: String,
     action: ReadyAction,
+    scale: Vec3,
 }
 
 #[derive(Component)]
 enum WaitFor {
-    Gltf(Handle<Gltf>, ReadyAction),
-    Scene(Handle<AnimationGraph>, ReadyAction),
+    Gltf {
+        gltf_handle: Handle<Gltf>,
+        action: ReadyAction,
+        scale: Vec3,
+    },
+    Scene {
+        scene: Entity,
+        graph_handle: Handle<AnimationGraph>,
+        action: ReadyAction,
+    },
 }
 
 impl LoadModel {
-    pub fn new(name: &str, action: ReadyAction) -> Self {
+    pub fn new(name: &str, action: ReadyAction, scale: Vec3) -> Self {
         Self {
             name: name.to_string(),
             action,
+            scale,
         }
     }
 }
@@ -46,58 +57,114 @@ fn load_model(
     children: Query<&Children>,
     anim_players: Query<&AnimationPlayer>,
 ) {
-    for (entity, LoadModel { name, action }) in models {
-        let handle = assets.load(format!("./models/{name}.glb"));
-
+    for (
+        entity,
+        LoadModel {
+            name,
+            action,
+            scale,
+        },
+    ) in models
+    {
         commands
             .entity(entity)
             .remove::<LoadModel>()
-            .insert(WaitFor::Gltf(handle, *action));
+            .insert(WaitFor::Gltf {
+                gltf_handle: assets.load(format!("./models/{name}.glb")),
+                action: *action,
+                scale: *scale,
+            });
     }
 
     for (entity, wait_for) in pending {
         match wait_for {
-            WaitFor::Gltf(handle, action) => match action {
-                ReadyAction::Enemy => {
-                    println!("WaitFor Gltf");
-                    if let Some(gltf) = assets_gltf.get(handle) {
-                        let (graph, _) = AnimationGraph::from_clips([
-                            gltf.named_animations["idle"].clone(),
-                            gltf.named_animations["walk"].clone(),
-                            gltf.named_animations["attack"].clone(),
-                            gltf.named_animations["death"].clone(),
-                        ]);
-                        let handle = graphs.add(graph);
+            WaitFor::Gltf {
+                gltf_handle,
+                action,
+                scale,
+            } => {
+                if let Some(gltf) = assets_gltf.get(gltf_handle) {
+                    let scene = commands
+                        .spawn((
+                            SceneRoot(gltf.scenes[0].clone()),
+                            Transform::from_scale(*scale),
+                        ))
+                        .id();
+                    commands
+                        .entity(entity)
+                        .insert((
+                            WaitFor::Scene {
+                                scene,
+                                graph_handle: graphs.add(
+                                    match action {
+                                        ReadyAction::Enemy => AnimationGraph::from_clips([
+                                            gltf.named_animations["idle"].clone(),
+                                            gltf.named_animations["walk"].clone(),
+                                            gltf.named_animations["attack"].clone(),
+                                            gltf.named_animations["death"].clone(),
+                                        ]),
+                                        ReadyAction::Weapon(_) => AnimationGraph::from_clips([
+                                            gltf.named_animations["idle"].clone(),
+                                            gltf.named_animations["shoot"].clone(),
+                                        ]),
+                                    }
+                                    .0,
+                                ),
+                                action: *action,
+                            },
+                            Visibility::default(),
+                        ))
+                        .add_child(scene);
+                }
+            }
+            WaitFor::Scene {
+                scene,
+                graph_handle,
+                action,
+            } => {
+                commands.entity(entity).remove::<WaitFor>();
+                match action {
+                    ReadyAction::Enemy => {
+                        let Some(entity_anim_player) = children
+                            .iter_descendants(entity)
+                            .chain([entity])
+                            .find(|e| anim_players.contains(*e))
+                        else {
+                            continue;
+                        };
+
+                        commands
+                            .entity(entity_anim_player)
+                            .insert(AnimationGraphHandle(graph_handle.clone()))
+                            .insert(AnimationTransitions::new());
 
                         commands
                             .entity(entity)
-                            .insert(SceneRoot(gltf.scenes[0].clone()))
-                            .insert(WaitFor::Scene(handle, *action));
+                            .insert(Enemy::new(entity_anim_player))
+                            .insert(Physics::new(0.5, 5.0));
+                    }
+                    ReadyAction::Weapon(offset) => {
+                        let Some(entity_anim_player) = children
+                            .iter_descendants(entity)
+                            .chain([entity])
+                            .find(|e| anim_players.contains(*e))
+                        else {
+                            continue;
+                        };
+
+                        commands
+                            .entity(entity_anim_player)
+                            .insert(AnimationGraphHandle(graph_handle.clone()))
+                            .insert(AnimationTransitions::new());
+
+                        commands.entity(entity).insert(Weapon::new(
+                            *scene,
+                            entity_anim_player,
+                            *offset,
+                        ));
                     }
                 }
-            },
-            WaitFor::Scene(handle, action) => match action {
-                ReadyAction::Enemy => {
-                    println!("WaitFor Scene");
-                    let Some(entity_anim_player) = children
-                        .iter_descendants(entity)
-                        .chain([entity])
-                        .find(|e| anim_players.contains(*e))
-                    else {
-                        continue;
-                    };
-
-                    commands
-                        .entity(entity)
-                        .remove::<WaitFor>()
-                        .insert(Enemy::new(entity_anim_player))
-                        .insert(Physics::new(0.5, 5.0));
-                    commands
-                        .entity(entity_anim_player)
-                        .insert(AnimationGraphHandle(handle.clone()))
-                        .insert(AnimationTransitions::new());
-                }
-            },
+            }
         }
     }
 }

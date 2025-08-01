@@ -4,6 +4,7 @@ use core::f32;
 
 use bevy::{
     prelude::*,
+    render::view::RenderLayers,
     window::{CursorGrabMode, PrimaryWindow},
 };
 // use bevy_flycam::{FlyCam, NoCameraPlayerPlugin};
@@ -12,18 +13,20 @@ use kiddo::SquaredEuclidean;
 use petgraph::{algo::dijkstra, graph::NodeIndex};
 
 use crate::{
-    enemies::EnemiesPlugin,
+    enemy::{EnemyPlugin, spider::Spider},
     level::{LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
     model_loader::{LoadModel, ModelLoaderPlugin, ReadyAction},
     player::{Player, PlayerPlugin},
     terrain::TerrainPlugin,
+    weapon::{WeaponPlugin, zapper::Zapper},
 };
 
-mod enemies;
+mod enemy;
 mod level;
 mod model_loader;
 mod player;
 mod terrain;
+mod weapon;
 
 fn main() {
     App::new()
@@ -48,7 +51,8 @@ fn main() {
         .add_plugins(PlayerPlugin)
         .add_plugins(TerrainPlugin)
         .add_plugins(ModelLoaderPlugin)
-        .add_plugins(EnemiesPlugin)
+        .add_plugins(EnemyPlugin)
+        .add_plugins(WeaponPlugin)
         .run();
 }
 
@@ -129,8 +133,13 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
     };
 
     commands.spawn((
-        LoadModel::new("spider", ReadyAction::Enemy),
-        Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y).with_scale(Vec3::splat(3.0)),
+        Zapper,
+        Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y),
+    ));
+
+    commands.spawn((
+        Spider,
+        Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y),
     ));
 
     commands.insert_resource(level);
@@ -147,6 +156,7 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
                 ..Default::default()
             },
             Transform::default().looking_to(Vec3::new(x, -1.0, y), Vec3::Y),
+            RenderLayers::from_layers(&[0, 1]),
         ));
     }
 
