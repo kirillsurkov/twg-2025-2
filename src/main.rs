@@ -135,10 +135,10 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
         Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y),
     ));
 
-    commands.spawn((
-        Spider,
-        Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y),
-    ));
+    for i in 0..1 {
+        let pos = spawn_point + (spawn_point - player_xy).normalize() * 5.0 * i as f32;
+        commands.spawn((Spider, Transform::from_xyz(pos.x, 0.0, pos.y)));
+    }
 
     commands.insert_resource(level);
 

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, time::Duration};
+use std::{collections::VecDeque, f32::consts::TAU, time::Duration};
 
 use bevy::prelude::*;
 use petgraph::{algo::astar, graph::NodeIndex};
@@ -17,21 +17,49 @@ impl Plugin for EnemyPlugin {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum AttackKind {
+    Ranged,
+    Melee,
+}
+
+#[derive(Clone)]
+enum State {
+    Idle,
+    Walk {
+        aggro_timer: f32,
+        aggro_entity: Entity,
+        aggro_nearest_node: NodeIndex,
+        walk_path: VecDeque<Vec2>,
+        walk_target: Option<Vec2>,
+    },
+    Attack {
+        timer_prepare: f32,
+        timer_action: f32,
+        origin: Vec2,
+        target: Entity,
+        target_pos: Vec2,
+    },
+    Death,
+}
+
 #[derive(Component)]
 pub struct Enemy {
     anim_player: Entity,
-    aggro_timer: f32,
-    path: VecDeque<Vec2>,
-    target: Option<Vec2>,
+    attack: AttackKind,
+    attack_range: f32,
+    speed: f32,
+    state: State,
 }
 
 impl Enemy {
-    pub fn new(anim_player: Entity) -> Self {
+    pub fn new(anim_player: Entity, attack: AttackKind, attack_range: f32, speed: f32) -> Self {
         Self {
             anim_player,
-            aggro_timer: 0.0,
-            path: VecDeque::new(),
-            target: None,
+            attack,
+            attack_range,
+            speed,
+            state: State::Idle,
         }
     }
 }
@@ -54,7 +82,12 @@ fn animate(
     for (enemy, physics) in enemies {
         let (mut player, mut transition, graph) = animation.get_mut(enemy.anim_player).unwrap();
 
-        let index = if enemy.target.is_some() { walk } else { idle };
+        let index = match enemy.state {
+            State::Idle => idle,
+            State::Walk { .. } => walk,
+            State::Attack { .. } => attack,
+            State::Death => death,
+        };
 
         let AnimationNodeType::Clip(clip) =
             &graphs.get(graph).unwrap().get(index).unwrap().node_type
@@ -77,76 +110,166 @@ fn ai(
     player: Single<Entity, With<Player>>,
     transforms: Query<&Transform>,
     mut enemies: Query<(Entity, &mut Enemy, &mut Physics)>,
-    mut last_player_nearest: Local<NodeIndex>,
+    time: Res<Time>,
 ) {
-    let player_pos = transforms.get(*player).unwrap().translation.xz();
-    let player_nearest = level.nearest_id_terrain(1, player_pos)[0];
+    let aggro_distance = 50.0;
+    let aggro_timer = 3.0;
 
-    let recalculate = player_nearest != *last_player_nearest;
-    *last_player_nearest = player_nearest;
+    let player_pos = transforms.get(*player).unwrap().translation.xz();
 
     for (entity, mut enemy, mut physics) in &mut enemies {
-        let pos = transforms.get(entity).unwrap().translation.xz();
-        let chase_player = player_pos.distance(pos) < 10.0;
+        let pos_3d = transforms.get(entity).unwrap().translation;
+        let pos = pos_3d.xz();
 
-        if recalculate {
-            let (_, path) = astar(
-                &level.graph,
-                level.nearest_id_terrain(1, pos)[0],
-                |id| id == player_nearest,
-                |e| *e.weight(),
-                |_| 0.0,
-            )
-            .unwrap();
-            enemy.path = path
-                .into_iter()
-                .map(|node| *level.graph.node_weight(node).unwrap())
-                .collect();
-        }
+        physics.move_vec = Vec2::ZERO;
+        physics.speed = enemy.speed;
+        physics.ignore_overlap = false;
 
-        if chase_player {
-            enemy.path.push_back(player_pos);
-        }
-
-        while let Some(target) = enemy.path.pop_front() {
-            let Some(dir) = (target - pos).try_normalize() else {
-                continue;
-            };
-
-            let can_pass = {
-                let mut march_pos = pos;
-                loop {
-                    let max_dist = -level.height(march_pos);
-                    if march_pos.distance(target) <= max_dist {
-                        break true;
-                    }
-                    if max_dist < physics.radius * 0.8 {
-                        break false;
-                    }
-                    march_pos += dir * max_dist;
+        match enemy.state.clone() {
+            State::Idle => {
+                if player_pos.distance(pos) < aggro_distance {
+                    enemy.state = State::Walk {
+                        aggro_timer,
+                        aggro_entity: *player,
+                        aggro_nearest_node: NodeIndex::end(),
+                        walk_path: VecDeque::new(),
+                        walk_target: None,
+                    };
                 }
-            };
-
-            if can_pass {
-                enemy.target = Some(target);
-            } else {
-                enemy.path.push_front(target);
-                break;
             }
-        }
+            State::Walk {
+                mut aggro_timer,
+                aggro_entity,
+                mut aggro_nearest_node,
+                mut walk_path,
+                mut walk_target,
+            } => {
+                if aggro_timer <= 0.0 {
+                    enemy.state = State::Idle;
+                    continue;
+                }
 
-        if chase_player {
-            enemy.path.pop_back();
-        }
+                aggro_timer -= time.delta_secs();
 
-        if let Some(target) = enemy.target {
-            physics.move_vec = target - pos;
-            physics.look_to = -physics.move_vec;
-            if physics.move_vec.length() < 0.01 {
-                enemy.target = None;
+                let aggro_pos = transforms.get(aggro_entity).unwrap().translation.xz();
+                let nearest_node = level.nearest_id_terrain(1, aggro_pos)[0];
+
+                if aggro_nearest_node != nearest_node {
+                    aggro_nearest_node = nearest_node;
+                    let (_, new_path) = astar(
+                        &level.graph,
+                        nearest_node,
+                        |id| id == nearest_node,
+                        |e| *e.weight(),
+                        |_| 0.0,
+                    )
+                    .unwrap();
+                    walk_path = new_path
+                        .into_iter()
+                        .map(|node| *level.graph.node_weight(node).unwrap())
+                        .collect();
+                }
+
+                walk_path.push_back(aggro_pos);
+
+                while let Some(target) = walk_path.pop_front() {
+                    let Some(dir) = (target - pos).try_normalize() else {
+                        continue;
+                    };
+
+                    let can_pass = {
+                        let mut march_pos = pos;
+                        loop {
+                            let max_dist = -level.height(march_pos);
+                            if march_pos.distance(target) <= max_dist {
+                                break true;
+                            }
+                            if max_dist < physics.radius * 0.8 {
+                                break false;
+                            }
+                            march_pos += dir * max_dist;
+                        }
+                    };
+
+                    if can_pass {
+                        walk_target = Some(target);
+                    } else {
+                        walk_path.push_front(target);
+                        break;
+                    }
+                }
+
+                walk_path.pop_back();
+
+                let dist = aggro_pos.distance(pos);
+                if walk_path.is_empty() && dist <= enemy.attack_range {
+                    enemy.state = State::Attack {
+                        timer_prepare: 1.0,
+                        timer_action: 1.0,
+                        origin: pos,
+                        target: aggro_entity,
+                        target_pos: aggro_pos,
+                    };
+                    continue;
+                }
+
+                if let Some(target) = walk_target {
+                    physics.move_vec = target - pos;
+                    physics.look_to = physics.look_to.slerp(
+                        Dir2::new(-physics.move_vec).unwrap_or(Dir2::NEG_Y),
+                        time.delta_secs() * 10.0,
+                    );
+                    if physics.move_vec.length() < 0.01 {
+                        walk_target = None;
+                    }
+                }
+
+                enemy.state = State::Walk {
+                    aggro_timer,
+                    aggro_entity,
+                    aggro_nearest_node,
+                    walk_path,
+                    walk_target,
+                };
             }
-        } else {
-            physics.move_vec = Vec2::ZERO;
+            State::Attack {
+                mut timer_prepare,
+                mut timer_action,
+                origin,
+                target,
+                mut target_pos,
+            } => {
+                let diff = target_pos - origin;
+                physics.look_to = Dir2::new(-diff).unwrap_or(Dir2::NEG_Y);
+
+                if timer_prepare > 0.0 {
+                    timer_prepare -= time.delta_secs();
+                    target_pos =
+                        transforms.get(target).unwrap().translation.xz() - physics.look_to * 5.0;
+                } else if timer_action >= 0.0 {
+                    timer_action -= time.delta_secs();
+                    match enemy.attack {
+                        AttackKind::Melee => {
+                            physics.move_vec = diff;
+                            physics.speed = diff.length();
+                            physics.ignore_overlap = true;
+                        }
+                        AttackKind::Ranged => {}
+                    }
+                } else {
+                    enemy.state = State::Idle;
+                    continue;
+                }
+
+                enemy.state = State::Attack {
+                    timer_prepare,
+                    timer_action,
+                    origin,
+                    target,
+                    target_pos,
+                };
+            }
+            State::Death => {}
         }
 
         // println!("{player_pos:?}\n{:?}\n{:?}\n", physics.move_vec, enemy.path);

@@ -73,7 +73,7 @@ fn init(mut commands: Commands, player: Single<(Entity, &mut Player), Added<Play
                 ..Default::default()
             },
             camera_projection,
-            Transform::from_xyz(0.0, 1.7, 0.0).looking_to(-Vec3::Z, Vec3::Y),
+            Transform::from_xyz(0.0, 1.7, 0.0),
             DepthPrepass,
             OcclusionCulling,
         ))

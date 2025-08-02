@@ -343,11 +343,11 @@ impl Level {
         self.kd_creatures.add(&pos.to_array(), creature.to_bits());
     }
 
-    pub fn nearest_creatures(&self, count: usize, point: Vec3) -> Vec<Entity> {
+    pub fn nearest_creatures(&self, count: usize, point: Vec3) -> Vec<(Entity, f32)> {
         self.kd_creatures
             .nearest_n::<SquaredEuclidean>(&point.to_array(), count)
             .into_iter()
-            .map(|neighbour| Entity::from_bits(neighbour.item))
+            .map(|neighbour| (Entity::from_bits(neighbour.item), neighbour.distance))
             .collect()
     }
 }

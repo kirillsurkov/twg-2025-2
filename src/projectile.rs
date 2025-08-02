@@ -89,7 +89,7 @@ fn update(
         let desired_pos = pos + dir * projectile.speed * delta;
 
         let mut hit = None;
-        for entity in level.nearest_creatures(10, pos) {
+        for (entity, _) in level.nearest_creatures(10, pos) {
             let Ok((transform, physics, player, enemy)) = transforms.get(entity) else {
                 continue;
             };

@@ -162,7 +162,8 @@ pub struct Physics {
     pub speed: f32,
     pub hitbox: Aabb3d,
     pub move_vec: Vec2,
-    pub look_to: Vec2,
+    pub look_to: Dir2,
+    pub ignore_overlap: bool,
 }
 
 impl Physics {
@@ -172,7 +173,8 @@ impl Physics {
             speed,
             hitbox,
             move_vec: Vec2::ZERO,
-            look_to: -Vec2::Y,
+            look_to: Dir2::NEG_Y,
+            ignore_overlap: false,
         }
     }
 }
@@ -335,15 +337,37 @@ fn update_lightmap(
     }
 }
 
-fn physics(level: Res<Level>, time: Res<Time>, mut queries: Query<(&Physics, &mut Transform)>) {
-    for (physics, mut transform) in &mut queries {
+fn physics(
+    level: Res<Level>,
+    time: Res<Time>,
+    queries: Query<(Entity, &Physics)>,
+    mut transforms: Query<&mut Transform>,
+) {
+    for (entity, physics) in queries {
         let speed = physics.move_vec.length().min(1.0) * physics.speed;
         let move_vec = physics.move_vec.normalize_or_zero();
 
-        let mut desired_pos = transform.translation.xz() + move_vec * time.delta_secs() * speed;
+        let pos_3d = transforms.get(entity).unwrap().translation;
+        let mut desired_pos = pos_3d.xz() + move_vec * time.delta_secs() * speed;
+
+        if !physics.ignore_overlap {
+            if let Some((entity, _)) = level
+                .nearest_creatures(2, desired_pos.extend(pos_3d.y).xzy())
+                .into_iter()
+                .nth(1)
+            {
+                let other_pos = transforms.get(entity).unwrap().translation.xz();
+                let other_radius = queries.get(entity).unwrap().1.radius;
+                let direction = desired_pos - other_pos;
+                let penetration = (physics.radius + other_radius) - direction.length();
+                desired_pos += direction.normalize_or_zero() * penetration.max(0.0) * 2.0;
+            }
+        }
+
         let penetration = physics.radius + level.height(desired_pos);
         desired_pos += level.normal_2d(desired_pos) * penetration.max(0.0);
 
+        let mut transform = transforms.get_mut(entity).unwrap();
         transform.translation.x = desired_pos.x;
         transform.translation.z = desired_pos.y;
 

@@ -3,7 +3,11 @@ use bevy::{
     prelude::*,
 };
 
-use crate::{enemy::Enemy, terrain::Physics, weapon::Weapon};
+use crate::{
+    enemy::{AttackKind, Enemy},
+    terrain::Physics,
+    weapon::Weapon,
+};
 
 pub struct ModelLoaderPlugin;
 
@@ -15,8 +19,16 @@ impl Plugin for ModelLoaderPlugin {
 
 #[derive(Component, Clone, Copy)]
 pub enum ReadyAction {
-    Enemy { hitbox: Aabb3d },
-    Weapon { offset: Vec3, shoot_delay: f32 },
+    Enemy {
+        attack: AttackKind,
+        attack_range: f32,
+        hitbox: Aabb3d,
+        speed: f32,
+    },
+    Weapon {
+        offset: Vec3,
+        shoot_delay: f32,
+    },
 }
 
 #[derive(Component)]
@@ -138,7 +150,12 @@ fn load_model(
             } => {
                 commands.entity(entity).remove::<WaitFor>();
                 match action {
-                    ReadyAction::Enemy { hitbox } => {
+                    ReadyAction::Enemy {
+                        attack,
+                        attack_range,
+                        hitbox,
+                        speed,
+                    } => {
                         let Some(entity_anim_player) = children
                             .iter_descendants(entity)
                             .chain([entity])
@@ -154,14 +171,19 @@ fn load_model(
 
                         commands
                             .entity(entity)
-                            .insert(Enemy::new(entity_anim_player))
+                            .insert(Enemy::new(
+                                entity_anim_player,
+                                *attack,
+                                *attack_range,
+                                *speed,
+                            ))
                             .insert(Physics::new(0.5, 5.0, *hitbox))
                             .with_child((
-                                Mesh3d(
-                                    meshes
-                                        .add(Cuboid::from_size((hitbox.half_size() * 2.0).into())),
-                                ),
-                                MeshMaterial3d(materials.add(Color::WHITE)),
+                                // Mesh3d(
+                                //     meshes
+                                //         .add(Cuboid::from_size((hitbox.half_size() * 2.0).into())),
+                                // ),
+                                // MeshMaterial3d(materials.add(Color::WHITE)),
                                 Transform::from_translation(hitbox.center().into()),
                                 Visibility::default(),
                             ));
