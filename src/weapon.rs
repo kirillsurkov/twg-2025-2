@@ -9,6 +9,10 @@ use crate::{
     terrain::Physics,
 };
 
+pub mod biogun;
+pub mod blaster;
+pub mod ion_cannon;
+pub mod pulse_rifle;
 pub mod zapper;
 
 pub struct WeaponPlugin;
@@ -20,6 +24,10 @@ impl Plugin for WeaponPlugin {
         app.add_systems(Update, shoot);
         app.add_systems(Update, drop_weapon.after(update));
         app.add_systems(Update, pick_weapon.after(update));
+        app.add_systems(Update, biogun::setup);
+        app.add_systems(Update, blaster::setup);
+        app.add_systems(Update, ion_cannon::setup);
+        app.add_systems(Update, pulse_rifle::setup);
         app.add_systems(Update, zapper::setup);
     }
 }
@@ -199,7 +207,7 @@ fn animate(
         if !player.is_playing_animation(index) {
             transition
                 .play(&mut player, index, Duration::from_millis(50))
-                .seek_to(clip.duration() * 0.5)
+                .seek_to(clip.duration() * 0.3)
                 .set_speed(clip.duration() / weapon.shoot_delay)
                 .repeat();
         }
@@ -237,8 +245,7 @@ fn shoot(
     for mut weapon in &mut weapons {
         if matches!(weapon.state, State::InHands { shoot: true }) && weapon.shoot_timer <= 0.0 {
             let (transform, global_transform) = transforms.get(weapon.model).unwrap();
-            let shoot_point = global_transform
-                .transform_point(weapon.shoot_point * transform.scale - weapon.offset);
+            let shoot_point = global_transform.transform_point(weapon.shoot_point);
             let shoot_point = camera
                 .world_to_viewport(camera_transform, shoot_point)
                 .unwrap();

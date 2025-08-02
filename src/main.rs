@@ -17,7 +17,9 @@ use crate::{
     player::{Player, PlayerPlugin},
     projectile::ProjectilePlugin,
     terrain::TerrainPlugin,
-    weapon::{zapper::Zapper, WeaponPlugin},
+    weapon::{
+        biogun::Biogun, blaster::Blaster, ion_cannon::IonCannon, pulse_rifle::PulseRifle, zapper::Zapper, WeaponPlugin
+    },
 };
 
 mod enemy;
@@ -130,13 +132,35 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
         player_xy + (point - player_xy).normalize() * 5.0
     };
 
+    let step = (spawn_point - player_xy).normalize() * 5.0;
+
     commands.spawn((
         Zapper,
-        Transform::from_xyz(spawn_point.x, 0.0, spawn_point.y),
+        Transform::from_translation((spawn_point + step * 0.0).extend(0.0).xzy()),
+    ));
+
+    commands.spawn((
+        Blaster,
+        Transform::from_translation((spawn_point + step * 1.0).extend(0.0).xzy()),
+    ));
+
+    commands.spawn((
+        PulseRifle,
+        Transform::from_translation((spawn_point + step * 2.0).extend(0.0).xzy()),
+    ));
+
+    commands.spawn((
+        IonCannon,
+        Transform::from_translation((spawn_point + step * 3.0).extend(0.0).xzy()),
+    ));
+
+    commands.spawn((
+        Biogun,
+        Transform::from_translation((spawn_point + step * 4.0).extend(0.0).xzy()),
     ));
 
     for i in 0..1 {
-        let pos = spawn_point + (spawn_point - player_xy).normalize() * 5.0 * i as f32;
+        let pos = spawn_point + step * i as f32;
         commands.spawn((Wormbeak, Transform::from_xyz(pos.x, 0.0, pos.y)));
     }
 

@@ -50,6 +50,7 @@ enum WaitFor {
         scene: Entity,
         graph_handle: Handle<AnimationGraph>,
         action: ReadyAction,
+        scale: Vec3,
     },
 }
 
@@ -135,6 +136,7 @@ fn load_model(
                                     .0,
                                 ),
                                 action: *action,
+                                scale: *scale,
                             },
                             Visibility::default(),
                         ))
@@ -146,6 +148,7 @@ fn load_model(
                 scene,
                 graph_handle,
                 action,
+                scale,
             } => {
                 commands.entity(entity).remove::<WaitFor>();
                 match action {
@@ -174,7 +177,7 @@ fn load_model(
                         let Ok(hitbox) = transforms.get(hitbox) else {
                             panic!("Enemy {name} doesn't have a hitbox");
                         };
-                        let hitbox = Aabb3d::new(hitbox.translation * 0.5, hitbox.scale * 0.5);
+                        let hitbox = Aabb3d::new(hitbox.translation * scale, hitbox.scale * scale);
 
                         commands
                             .entity(anim_player)
