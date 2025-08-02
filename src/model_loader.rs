@@ -1,4 +1,7 @@
-use bevy::prelude::*;
+use bevy::{
+    math::bounding::{Aabb3d, BoundingVolume},
+    prelude::*,
+};
 
 use crate::{enemy::Enemy, terrain::Physics, weapon::Weapon};
 
@@ -12,7 +15,7 @@ impl Plugin for ModelLoaderPlugin {
 
 #[derive(Component, Clone, Copy)]
 pub enum ReadyAction {
-    Enemy,
+    Enemy { hitbox: Aabb3d },
     Weapon { offset: Vec3, shoot_delay: f32 },
 }
 
@@ -60,6 +63,9 @@ fn load_model(
     anim_players: Query<&AnimationPlayer>,
     names: Query<&Name>,
     transforms: Query<&Transform>,
+
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for (
         entity,
@@ -104,7 +110,7 @@ fn load_model(
                                 scene,
                                 graph_handle: graphs.add(
                                     match action {
-                                        ReadyAction::Enemy => AnimationGraph::from_clips([
+                                        ReadyAction::Enemy { .. } => AnimationGraph::from_clips([
                                             gltf.named_animations["idle"].clone(),
                                             gltf.named_animations["walk"].clone(),
                                             gltf.named_animations["attack"].clone(),
@@ -132,7 +138,7 @@ fn load_model(
             } => {
                 commands.entity(entity).remove::<WaitFor>();
                 match action {
-                    ReadyAction::Enemy => {
+                    ReadyAction::Enemy { hitbox } => {
                         let Some(entity_anim_player) = children
                             .iter_descendants(entity)
                             .chain([entity])
@@ -149,7 +155,16 @@ fn load_model(
                         commands
                             .entity(entity)
                             .insert(Enemy::new(entity_anim_player))
-                            .insert(Physics::new(0.5, 5.0));
+                            .insert(Physics::new(0.5, 5.0, *hitbox))
+                            .with_child((
+                                Mesh3d(
+                                    meshes
+                                        .add(Cuboid::from_size((hitbox.half_size() * 2.0).into())),
+                                ),
+                                MeshMaterial3d(materials.add(Color::WHITE)),
+                                Transform::from_translation(hitbox.center().into()),
+                                Visibility::default(),
+                            ));
                     }
                     ReadyAction::Weapon {
                         offset,

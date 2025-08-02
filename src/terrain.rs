@@ -1,6 +1,7 @@
 use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
+    math::bounding::Aabb3d,
     pbr::{ExtendedMaterial, MaterialExtension},
     prelude::*,
     render::render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
@@ -159,15 +160,17 @@ impl Textures {
 pub struct Physics {
     pub radius: f32,
     pub speed: f32,
+    pub hitbox: Aabb3d,
     pub move_vec: Vec2,
     pub look_to: Vec2,
 }
 
 impl Physics {
-    pub fn new(radius: f32, speed: f32) -> Self {
+    pub fn new(radius: f32, speed: f32, hitbox: Aabb3d) -> Self {
         Self {
             radius,
             speed,
+            hitbox,
             move_vec: Vec2::ZERO,
             look_to: -Vec2::Y,
         }

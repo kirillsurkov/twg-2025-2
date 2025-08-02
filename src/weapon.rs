@@ -2,7 +2,12 @@ use std::{f32::consts::TAU, time::Duration};
 
 use bevy::{prelude::*, render::view::RenderLayers};
 
-use crate::{level::Level, player::Player, projectile::bullet::Bullet, terrain::Physics};
+use crate::{
+    level::Level,
+    player::Player,
+    projectile::{Damage, bullet::Bullet},
+    terrain::Physics,
+};
 
 pub mod zapper;
 
@@ -246,9 +251,12 @@ fn shoot(
             commands.spawn((
                 Transform::from_translation(shoot_point).looking_at(isec, Vec3::Y),
                 Bullet,
+                Damage::Enemy,
             ));
             weapon.shoot_timer += weapon.shoot_delay;
         }
-        weapon.shoot_timer = (weapon.shoot_timer - time.delta_secs()).max(0.0);
+        if weapon.shoot_timer > 0.0 {
+            weapon.shoot_timer -= time.delta_secs();
+        }
     }
 }

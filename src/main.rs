@@ -9,12 +9,10 @@ use bevy::{
 };
 use bevy_hanabi::HanabiPlugin;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
-use kiddo::SquaredEuclidean;
-use petgraph::graph::NodeIndex;
 
 use crate::{
-    enemy::{EnemyPlugin, spider::Spider},
-    level::{LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
+    enemy::{Enemy, EnemyPlugin, spider::Spider},
+    level::{Level, LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
     model_loader::ModelLoaderPlugin,
     player::{Player, PlayerPlugin},
     projectile::ProjectilePlugin,
@@ -50,6 +48,8 @@ fn main() {
         })
         .insert_resource(ClearColor(Color::srgba(0.02, 0.02, 0.02, 1.0)))
         .add_systems(Startup, setup)
+        .add_systems(Update, defer_despawn)
+        .add_systems(Update, update_level)
         .add_systems(Update, grab_cursor)
         .add_plugins(PlayerPlugin)
         .add_plugins(TerrainPlugin)
@@ -121,14 +121,8 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
 
     let level = level_builder.build(4.0);
 
-    let player_xy = level.nearest_one(Vec2::new(0.0, f32::MAX)).unwrap();
-
-    let node = NodeIndex::new(
-        level
-            .kd
-            .nearest_one::<SquaredEuclidean>(&[player_xy.x, player_xy.y])
-            .item as usize,
-    );
+    let player_xy = level.nearest_terrain(1, Vec2::new(0.0, f32::MAX))[0].unwrap();
+    let node = level.nearest_id_terrain(1, player_xy)[0];
 
     let spawn_point = {
         let node = level.graph.neighbors(node).next().unwrap();
@@ -168,6 +162,18 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
     window.cursor_options.visible = false;
 }
 
+fn update_level(
+    mut level: ResMut<Level>,
+    enemies: Query<(Entity, &GlobalTransform), With<Enemy>>,
+    player: Single<(Entity, &GlobalTransform), With<Player>>,
+) {
+    level.clear_creatures();
+    level.add_creature(player.0, player.1.translation());
+    for (enemy, transform) in enemies {
+        level.add_creature(enemy, transform.translation());
+    }
+}
+
 fn grab_cursor(
     mut window: Single<&mut Window, With<PrimaryWindow>>,
     keys: Res<ButtonInput<KeyCode>>,
@@ -179,6 +185,23 @@ fn grab_cursor(
         } else {
             window.cursor_options.grab_mode = CursorGrabMode::None;
             window.cursor_options.visible = true;
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct DeferDespawn(pub f32);
+
+fn defer_despawn(
+    mut commands: Commands,
+    mut despawns: Query<(Entity, &mut DeferDespawn)>,
+    time: Res<Time>,
+) {
+    for (entity, mut despawn) in &mut despawns {
+        if despawn.0 <= 0.0 {
+            commands.entity(entity).despawn();
+        } else {
+            despawn.0 -= time.delta_secs();
         }
     }
 }

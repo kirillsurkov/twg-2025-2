@@ -16,10 +16,12 @@ pub fn setup(
     mut effect: Local<Option<Handle<EffectAsset>>>,
     entities: Query<Entity, Added<Bullet>>,
 ) {
+    let particle_lifetime = 0.2;
     let effect = effect.get_or_insert({
         let writer = ExprWriter::new();
         let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
-        let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(0.2).expr());
+        let init_lifetime =
+            SetAttributeModifier::new(Attribute::LIFETIME, writer.lit(particle_lifetime).expr());
         let init_pos = SetPositionSphereModifier {
             center: writer.lit(Vec3::ZERO).expr(),
             radius: writer.lit(0.01).expr(),
@@ -36,7 +38,7 @@ pub fn setup(
         effects.add(
             EffectAsset::new(
                 64,
-                SpawnerSettings::rate((64.0 / 0.2).into()),
+                SpawnerSettings::rate((64.0 / particle_lifetime).into()),
                 writer.finish(),
             )
             .with_name("Bullet")
@@ -60,7 +62,9 @@ pub fn setup(
             Projectile {
                 speed: 50.0,
                 lifetime: 3.0,
+                particle_lifetime,
                 bounces: 3,
+                damage: 1.0,
             },
             ParticleEffect::new(effect.clone_weak()),
             NoFrustumCulling,

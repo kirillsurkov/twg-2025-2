@@ -1,6 +1,7 @@
 use bevy::{
     core_pipeline::prepass::DepthPrepass,
     input::mouse::MouseMotion,
+    math::bounding::Aabb3d,
     prelude::*,
     render::{experimental::occlusion_culling::OcclusionCulling, view::RenderLayers},
     window::{CursorGrabMode, PrimaryWindow},
@@ -82,7 +83,11 @@ fn init(mut commands: Commands, player: Single<(Entity, &mut Player), Added<Play
     commands
         .entity(player_entity)
         .insert(Visibility::default())
-        .insert(Physics::new(0.5, 12.0))
+        .insert(Physics::new(
+            0.5,
+            12.0,
+            Aabb3d::new(Vec3::new(0.0, 0.9, 0.0), Vec3::new(0.5, 1.8, 0.5) * 0.5),
+        ))
         .add_child(player.world_camera);
 }
 

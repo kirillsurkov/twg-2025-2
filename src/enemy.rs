@@ -80,7 +80,7 @@ fn ai(
     mut last_player_nearest: Local<NodeIndex>,
 ) {
     let player_pos = transforms.get(*player).unwrap().translation.xz();
-    let player_nearest = level.nearest_one_id(player_pos);
+    let player_nearest = level.nearest_id_terrain(1, player_pos)[0];
 
     let recalculate = player_nearest != *last_player_nearest;
     *last_player_nearest = player_nearest;
@@ -92,7 +92,7 @@ fn ai(
         if recalculate {
             let (_, path) = astar(
                 &level.graph,
-                level.nearest_one_id(pos),
+                level.nearest_id_terrain(1, pos)[0],
                 |id| id == player_nearest,
                 |e| *e.weight(),
                 |_| 0.0,

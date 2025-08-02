@@ -1,4 +1,7 @@
-use std::{collections::BinaryHeap, f32::consts::E};
+use std::{
+    collections::{BinaryHeap, HashMap},
+    f32::consts::E,
+};
 
 use bevy::prelude::*;
 use fast_poisson::Poisson2D;
@@ -142,7 +145,7 @@ impl LevelBiome {
 pub struct LevelPart {
     graph: Graph<Vec2, f32, Undirected>,
     bounds: Rect,
-    pub radius: f32,
+    radius: f32,
     biome: LevelBiome,
 }
 
@@ -232,7 +235,8 @@ pub enum PartAlign {
 #[derive(Resource)]
 pub struct Level {
     pub graph: Graph<Vec2, f32, Undirected>,
-    pub kd: KdTree<f32, 2>,
+    kd_terrain: KdTree<f32, 2>,
+    kd_creatures: KdTree<f32, 3>,
     bounds: Rect,
     scale: f32,
     biome_map: ImageBuffer<BiomePixel, Vec<f32>>,
@@ -316,19 +320,41 @@ impl Level {
         pos
     }
 
-    pub fn nearest_one_id(&self, point: Vec2) -> NodeIndex {
-        let neighbour = self.kd.nearest_one::<SquaredEuclidean>(&[point.x, point.y]);
-        NodeIndex::new(neighbour.item as usize)
+    pub fn nearest_id_terrain(&self, count: usize, point: Vec2) -> Vec<NodeIndex> {
+        self.kd_terrain
+            .nearest_n::<SquaredEuclidean>(&point.to_array(), count)
+            .into_iter()
+            .map(|neighbour| NodeIndex::new(neighbour.item as usize))
+            .collect()
     }
 
-    pub fn nearest_one(&self, point: Vec2) -> Option<Vec2> {
-        self.graph.node_weight(self.nearest_one_id(point)).cloned()
+    pub fn nearest_terrain(&self, count: usize, point: Vec2) -> Vec<Option<Vec2>> {
+        self.nearest_id_terrain(count, point)
+            .into_iter()
+            .map(|node| self.graph.node_weight(node).cloned())
+            .collect()
+    }
+
+    pub fn clear_creatures(&mut self) {
+        self.kd_creatures = KdTree::new();
+    }
+
+    pub fn add_creature(&mut self, creature: Entity, pos: Vec3) {
+        self.kd_creatures.add(&pos.to_array(), creature.to_bits());
+    }
+
+    pub fn nearest_creatures(&self, count: usize, point: Vec3) -> Vec<Entity> {
+        self.kd_creatures
+            .nearest_n::<SquaredEuclidean>(&point.to_array(), count)
+            .into_iter()
+            .map(|neighbour| Entity::from_bits(neighbour.item))
+            .collect()
     }
 }
 
 pub struct LevelBuilder {
     graph: Graph<Vec2, f32, Undirected>,
-    kd: KdTree<f32, 2>,
+    kd_terrain: KdTree<f32, 2>,
     bounds: Rect,
     parts: Vec<LevelPart>,
 }
@@ -340,7 +366,7 @@ impl LevelBuilder {
     pub fn new() -> Self {
         Self {
             graph: Graph::new_undirected(),
-            kd: KdTree::new(),
+            kd_terrain: KdTree::new(),
             bounds: Rect {
                 min: Vec2::MAX,
                 max: Vec2::MIN,
@@ -380,7 +406,7 @@ impl LevelBuilder {
             .graph
             .node_references()
             .flat_map(|(node, point)| {
-                self.kd
+                self.kd_terrain
                     .nearest_n::<SquaredEuclidean>(&[point.x, point.y], 2)
                     .into_iter()
                     .map(move |neighbour| (neighbour, node.index() + idx_offset))
@@ -414,10 +440,10 @@ impl LevelBuilder {
                     edge.target()
                 };
                 let node = (node.index() + idx_offset) as u64;
-                self.kd.add(&[point.x, point.y], node);
+                self.kd_terrain.add(&[point.x, point.y], node);
                 point += step;
             }
-            self.kd.add(
+            self.kd_terrain.add(
                 &[target.x, target.y],
                 (edge.target().index() + idx_offset) as u64,
             );
@@ -558,7 +584,8 @@ impl LevelBuilder {
         let normal_map = self.normal_map(scale, &height_map);
         Level {
             graph: self.graph,
-            kd: self.kd,
+            kd_terrain: self.kd_terrain,
+            kd_creatures: KdTree::new(),
             bounds: self.bounds,
             scale,
             height_map,
