@@ -11,13 +11,13 @@ use bevy_hanabi::HanabiPlugin;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 
 use crate::{
-    enemy::{Enemy, EnemyPlugin, spider::Spider},
+    enemy::{spider::Spider, wormbeak::Wormbeak, Enemy, EnemyPlugin},
     level::{Level, LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
     model_loader::ModelLoaderPlugin,
     player::{Player, PlayerPlugin},
     projectile::ProjectilePlugin,
     terrain::TerrainPlugin,
-    weapon::{WeaponPlugin, zapper::Zapper},
+    weapon::{zapper::Zapper, WeaponPlugin},
 };
 
 mod enemy;
@@ -137,7 +137,7 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
 
     for i in 0..1 {
         let pos = spawn_point + (spawn_point - player_xy).normalize() * 5.0 * i as f32;
-        commands.spawn((Spider, Transform::from_xyz(pos.x, 0.0, pos.y)));
+        commands.spawn((Wormbeak, Transform::from_xyz(pos.x, 0.0, pos.y)));
     }
 
     commands.insert_resource(level);

@@ -6,14 +6,14 @@ use crate::{
 };
 
 #[derive(Component)]
-pub struct Spider;
+pub struct Stalker;
 
-pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Spider>>) {
+pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Stalker>>) {
     for entity in entities {
         commands.entity(entity).insert(LoadModel::new(
-            "spider",
+            "stalker",
             ReadyAction::Enemy {
-                attack: AttackKind::Melee,
+                attack: AttackKind::Ranged,
                 attack_range: 15.0,
                 speed: 5.0,
             },

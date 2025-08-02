@@ -22,7 +22,6 @@ pub enum ReadyAction {
     Enemy {
         attack: AttackKind,
         attack_range: f32,
-        hitbox: Aabb3d,
         speed: f32,
     },
     Weapon {
@@ -153,37 +152,45 @@ fn load_model(
                     ReadyAction::Enemy {
                         attack,
                         attack_range,
-                        hitbox,
                         speed,
                     } => {
-                        let Some(entity_anim_player) = children
-                            .iter_descendants(entity)
-                            .chain([entity])
-                            .find(|e| anim_players.contains(*e))
-                        else {
-                            continue;
+                        let mut anim_player = Entity::PLACEHOLDER;
+                        let mut hitbox = Entity::PLACEHOLDER;
+                        for entity in children.iter_descendants(entity).chain([entity]) {
+                            if anim_players.contains(entity) {
+                                anim_player = entity;
+                            }
+                            if let Ok(name) = names.get(entity) {
+                                if name.as_str() == "hitbox" {
+                                    hitbox = entity;
+                                }
+                            }
+                        }
+
+                        let Ok(_) = anim_players.get(anim_player) else {
+                            panic!("Enemy {name} doesn't have an animation player");
                         };
 
+                        let Ok(hitbox) = transforms.get(hitbox) else {
+                            panic!("Enemy {name} doesn't have a hitbox");
+                        };
+                        let hitbox = Aabb3d::new(hitbox.translation * 0.5, hitbox.scale * 0.5);
+
                         commands
-                            .entity(entity_anim_player)
+                            .entity(anim_player)
                             .insert(AnimationGraphHandle(graph_handle.clone()))
                             .insert(AnimationTransitions::new());
 
                         commands
                             .entity(entity)
-                            .insert(Enemy::new(
-                                entity_anim_player,
-                                *attack,
-                                *attack_range,
-                                *speed,
-                            ))
-                            .insert(Physics::new(0.5, 5.0, *hitbox))
+                            .insert(Enemy::new(anim_player, *attack, *attack_range, *speed))
+                            .insert(Physics::new(0.5, 5.0, hitbox))
                             .with_child((
-                                // Mesh3d(
-                                //     meshes
-                                //         .add(Cuboid::from_size((hitbox.half_size() * 2.0).into())),
-                                // ),
-                                // MeshMaterial3d(materials.add(Color::WHITE)),
+                                Mesh3d(
+                                    meshes
+                                        .add(Cuboid::from_size((hitbox.half_size() * 2.0).into())),
+                                ),
+                                MeshMaterial3d(materials.add(Color::WHITE)),
                                 Transform::from_translation(hitbox.center().into()),
                                 Visibility::default(),
                             ));

@@ -5,7 +5,11 @@ use petgraph::{algo::astar, graph::NodeIndex};
 
 use crate::{level::Level, player::Player, terrain::Physics};
 
+pub mod beetle;
+pub mod glutton;
 pub mod spider;
+pub mod stalker;
+pub mod wormbeak;
 
 pub struct EnemyPlugin;
 
@@ -13,7 +17,11 @@ impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, animate);
         app.add_systems(Update, ai);
+        app.add_systems(Update, beetle::setup);
+        app.add_systems(Update, glutton::setup);
         app.add_systems(Update, spider::setup);
+        app.add_systems(Update, stalker::setup);
+        app.add_systems(Update, wormbeak::setup);
     }
 }
 
