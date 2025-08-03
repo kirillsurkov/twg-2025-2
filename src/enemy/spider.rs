@@ -15,6 +15,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Spider>>) {
             ReadyAction::Enemy {
                 attack: AttackKind::Melee,
                 attack_range: 15.0,
+                attack_delay: 1.0,
                 speed: 5.0,
             },
             Vec3::splat(0.5),

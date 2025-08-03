@@ -11,7 +11,7 @@ use bevy_hanabi::HanabiPlugin;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 
 use crate::{
-    enemy::{spider::Spider, wormbeak::Wormbeak, Enemy, EnemyPlugin},
+    enemy::{glutton::Glutton, spider::Spider, wormbeak::Wormbeak, Enemy, EnemyPlugin},
     level::{Level, LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
     model_loader::ModelLoaderPlugin,
     player::{Player, PlayerPlugin},
@@ -159,10 +159,15 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
         Transform::from_translation((spawn_point + step * 4.0).extend(0.0).xzy()),
     ));
 
-    for i in 0..1 {
-        let pos = spawn_point + step * i as f32;
-        commands.spawn((Wormbeak, Transform::from_xyz(pos.x, 0.0, pos.y)));
-    }
+    commands.spawn((
+        Glutton,
+        Transform::from_translation((spawn_point + step * 5.0).extend(0.0).xzy()),
+    ));
+
+    commands.spawn((
+        Wormbeak,
+        Transform::from_translation((spawn_point + step * 6.0).extend(0.0).xzy()),
+    ));
 
     commands.insert_resource(level);
 

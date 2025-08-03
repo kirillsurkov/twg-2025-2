@@ -1,6 +1,7 @@
 use bevy::{
     math::bounding::{Aabb3d, BoundingVolume},
     prelude::*,
+    render::view::NoFrustumCulling,
 };
 
 use crate::{
@@ -22,6 +23,7 @@ pub enum ReadyAction {
     Enemy {
         attack: AttackKind,
         attack_range: f32,
+        attack_delay: f32,
         speed: f32,
     },
     Weapon {
@@ -155,17 +157,22 @@ fn load_model(
                     ReadyAction::Enemy {
                         attack,
                         attack_range,
+                        attack_delay,
                         speed,
                     } => {
                         let mut anim_player = Entity::PLACEHOLDER;
                         let mut hitbox = Entity::PLACEHOLDER;
+                        let mut shoot_point = Entity::PLACEHOLDER;
                         for entity in children.iter_descendants(entity).chain([entity]) {
+                            commands.entity(entity).insert(NoFrustumCulling);
                             if anim_players.contains(entity) {
                                 anim_player = entity;
                             }
                             if let Ok(name) = names.get(entity) {
-                                if name.as_str() == "hitbox" {
-                                    hitbox = entity;
+                                match name.as_str() {
+                                    "hitbox" => hitbox = entity,
+                                    "shoot_point" => shoot_point = entity,
+                                    _ => {}
                                 }
                             }
                         }
@@ -179,6 +186,17 @@ fn load_model(
                         };
                         let hitbox = Aabb3d::new(hitbox.translation * scale, hitbox.scale * scale);
 
+                        let shoot_point = match (attack, transforms.get(shoot_point)) {
+                            (AttackKind::Ranged, Ok(transform)) => transform.translation,
+                            (AttackKind::Melee, _) => Vec3::ZERO,
+                            (AttackKind::Ranged, Err(_)) => {
+                                panic!("Ranged enemy {name} doesn't have a a shoot point")
+                            }
+                        };
+
+                        let radius =
+                            0.5 * (hitbox.max.x - hitbox.min.x).min(hitbox.max.z - hitbox.min.z);
+
                         commands
                             .entity(anim_player)
                             .insert(AnimationGraphHandle(graph_handle.clone()))
@@ -186,14 +204,22 @@ fn load_model(
 
                         commands
                             .entity(entity)
-                            .insert(Enemy::new(anim_player, *attack, *attack_range, *speed))
-                            .insert(Physics::new(0.5, 5.0, hitbox))
+                            .insert(Enemy::new(
+                                *scene,
+                                anim_player,
+                                *attack,
+                                *attack_range,
+                                *attack_delay,
+                                *speed,
+                                shoot_point,
+                            ))
+                            .insert(Physics::new(radius, *speed, hitbox))
                             .with_child((
-                                Mesh3d(
-                                    meshes
-                                        .add(Cuboid::from_size((hitbox.half_size() * 2.0).into())),
-                                ),
-                                MeshMaterial3d(materials.add(Color::WHITE)),
+                                // Mesh3d(
+                                //     meshes
+                                //         .add(Cuboid::from_size((hitbox.half_size() * 2.0).into())),
+                                // ),
+                                // MeshMaterial3d(materials.add(Color::WHITE)),
                                 Transform::from_translation(hitbox.center().into()),
                                 Visibility::default(),
                             ));

@@ -1,9 +1,14 @@
-use std::{collections::VecDeque, f32::consts::TAU, time::Duration};
+use std::{collections::VecDeque, time::Duration};
 
 use bevy::prelude::*;
 use petgraph::{algo::astar, graph::NodeIndex};
 
-use crate::{level::Level, player::Player, terrain::Physics};
+use crate::{
+    level::Level,
+    player::Player,
+    projectile::{Damage, bullet::Bullet},
+    terrain::Physics,
+};
 
 pub mod beetle;
 pub mod glutton;
@@ -44,6 +49,7 @@ enum State {
     Attack {
         timer_prepare: f32,
         timer_action: f32,
+        ranged_done: bool,
         origin: Vec2,
         target: Entity,
         target_pos: Vec2,
@@ -51,29 +57,52 @@ enum State {
     Death,
 }
 
+enum Animation {
+    Idle,
+    Walk,
+    Attack,
+    Death,
+}
+
 #[derive(Component)]
 pub struct Enemy {
+    scene: Entity,
     anim_player: Entity,
     attack: AttackKind,
     attack_range: f32,
+    attack_delay: f32,
     speed: f32,
+    shoot_point: Vec3,
     state: State,
+    animation: Option<Animation>,
 }
 
 impl Enemy {
-    pub fn new(anim_player: Entity, attack: AttackKind, attack_range: f32, speed: f32) -> Self {
+    pub fn new(
+        scene: Entity,
+        anim_player: Entity,
+        attack: AttackKind,
+        attack_range: f32,
+        attack_delay: f32,
+        speed: f32,
+        shoot_point: Vec3,
+    ) -> Self {
         Self {
+            scene,
             anim_player,
             attack,
             attack_range,
+            attack_delay,
             speed,
+            shoot_point,
             state: State::Idle,
+            animation: None,
         }
     }
 }
 
 fn animate(
-    enemies: Query<(&Enemy, &Physics)>,
+    mut enemies: Query<(&mut Enemy, &Physics)>,
     mut animation: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
@@ -87,14 +116,15 @@ fn animate(
     let attack = AnimationNodeIndex::new(3);
     let death = AnimationNodeIndex::new(4);
 
-    for (enemy, physics) in enemies {
+    for (mut enemy, physics) in &mut enemies {
         let (mut player, mut transition, graph) = animation.get_mut(enemy.anim_player).unwrap();
 
-        let index = match enemy.state {
-            State::Idle => idle,
-            State::Walk { .. } => walk,
-            State::Attack { .. } => attack,
-            State::Death => death,
+        let index = match enemy.animation.take() {
+            Some(Animation::Idle) => idle,
+            Some(Animation::Walk) => walk,
+            Some(Animation::Attack) => attack,
+            Some(Animation::Death) => death,
+            _ => continue,
         };
 
         let AnimationNodeType::Clip(clip) =
@@ -104,19 +134,26 @@ fn animate(
         };
         let clip = clips.get(clip).unwrap();
 
-        if !player.is_playing_animation(index) {
+        if !player.is_playing_animation(index) || player.all_finished() {
             transition
-                .play(&mut player, index, Duration::from_millis(250))
-                .set_speed(if index == walk { physics.speed } else { 1.0 })
-                .repeat();
+                .play(&mut player, index, Duration::from_millis(100))
+                .set_speed(match true {
+                    _ if index == idle => 1.0,
+                    _ if index == walk => clip.duration() * physics.speed * 0.5,
+                    _ if index == attack => clip.duration() / enemy.attack_delay,
+                    _ if index == death => 1.0,
+                    _ => unreachable!(),
+                });
         }
     }
 }
 
 fn ai(
+    mut commands: Commands,
     level: Res<Level>,
     player: Single<Entity, With<Player>>,
     transforms: Query<&Transform>,
+    global_transforms: Query<&GlobalTransform>,
     mut enemies: Query<(Entity, &mut Enemy, &mut Physics)>,
     time: Res<Time>,
 ) {
@@ -126,7 +163,8 @@ fn ai(
     let player_pos = transforms.get(*player).unwrap().translation.xz();
 
     for (entity, mut enemy, mut physics) in &mut enemies {
-        let pos_3d = transforms.get(entity).unwrap().translation;
+        let transform = transforms.get(entity).unwrap();
+        let pos_3d = transform.translation;
         let pos = pos_3d.xz();
 
         physics.move_vec = Vec2::ZERO;
@@ -143,6 +181,8 @@ fn ai(
                         walk_path: VecDeque::new(),
                         walk_target: None,
                     };
+                } else {
+                    enemy.animation = Some(Animation::Idle);
                 }
             }
             State::Walk {
@@ -178,7 +218,7 @@ fn ai(
                         .collect();
                 }
 
-                walk_path.push_back(aggro_pos);
+                walk_path.push_back(aggro_pos + level.normal_2d(aggro_pos) * physics.radius);
 
                 while let Some(target) = walk_path.pop_front() {
                     let Some(dir) = (target - pos).try_normalize() else {
@@ -192,7 +232,7 @@ fn ai(
                             if march_pos.distance(target) <= max_dist {
                                 break true;
                             }
-                            if max_dist < physics.radius * 0.8 {
+                            if max_dist < physics.radius * 0.9 {
                                 break false;
                             }
                             march_pos += dir * max_dist;
@@ -212,13 +252,17 @@ fn ai(
                 let dist = aggro_pos.distance(pos);
                 if walk_path.is_empty() && dist <= enemy.attack_range {
                     enemy.state = State::Attack {
-                        timer_prepare: 1.0,
-                        timer_action: 1.0,
+                        timer_prepare: 0.5,
+                        timer_action: 0.5,
                         origin: pos,
                         target: aggro_entity,
                         target_pos: aggro_pos,
+                        ranged_done: false,
                     };
+                    enemy.animation = Some(Animation::Attack);
                     continue;
+                } else {
+                    enemy.animation = Some(Animation::Walk);
                 }
 
                 if let Some(target) = walk_target {
@@ -246,23 +290,37 @@ fn ai(
                 origin,
                 target,
                 mut target_pos,
+                mut ranged_done,
             } => {
                 let diff = target_pos - origin;
                 physics.look_to = Dir2::new(-diff).unwrap_or(Dir2::NEG_Y);
 
                 if timer_prepare > 0.0 {
-                    timer_prepare -= time.delta_secs();
+                    timer_prepare -= time.delta_secs() / enemy.attack_delay;
                     target_pos =
                         transforms.get(target).unwrap().translation.xz() - physics.look_to * 5.0;
                 } else if timer_action >= 0.0 {
-                    timer_action -= time.delta_secs();
+                    timer_action -= time.delta_secs() / enemy.attack_delay;
                     match enemy.attack {
                         AttackKind::Melee => {
                             physics.move_vec = diff;
-                            physics.speed = diff.length();
+                            physics.speed = 2.0 * diff.length() / enemy.attack_delay;
                             physics.ignore_overlap = true;
                         }
-                        AttackKind::Ranged => {}
+                        AttackKind::Ranged if !ranged_done => {
+                            ranged_done = true;
+                            let shoot_point = global_transforms
+                                .get(enemy.scene)
+                                .unwrap()
+                                .transform_point(enemy.shoot_point);
+                            commands.spawn((
+                                Transform::from_translation(shoot_point)
+                                    .looking_at(target_pos.extend(1.7).xzy(), Vec3::Y),
+                                Bullet,
+                                Damage::Player,
+                            ));
+                        }
+                        _ => {}
                     }
                 } else {
                     enemy.state = State::Idle;
@@ -275,9 +333,12 @@ fn ai(
                     origin,
                     target,
                     target_pos,
+                    ranged_done,
                 };
             }
-            State::Death => {}
+            State::Death => {
+                enemy.animation = Some(Animation::Death);
+            }
         }
 
         // println!("{player_pos:?}\n{:?}\n{:?}\n", physics.move_vec, enemy.path);

@@ -15,6 +15,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Stalker>>) {
             ReadyAction::Enemy {
                 attack: AttackKind::Ranged,
                 attack_range: 15.0,
+                attack_delay: 1.0,
                 speed: 5.0,
             },
             Vec3::splat(0.5),
