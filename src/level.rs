@@ -320,6 +320,22 @@ impl Level {
         pos
     }
 
+    pub fn can_walk(&self, mut from: Vec2, to: Vec2, radius: f32) -> bool {
+        let Some(dir) = (to - from).try_normalize() else {
+            return true;
+        };
+        loop {
+            let max_step = -self.height(from);
+            if from.distance(to) <= max_step {
+                break true;
+            }
+            if max_step < radius {
+                break false;
+            }
+            from += dir * max_step;
+        }
+    }
+
     pub fn nearest_id_terrain(&self, count: usize, point: Vec2) -> Vec<NodeIndex> {
         self.kd_terrain
             .nearest_n::<SquaredEuclidean>(&point.to_array(), count)
@@ -544,7 +560,11 @@ impl LevelBuilder {
             let road_width = 0.25 * radius;
             let max_height = 0.5 * radius - road_width;
 
-            Luma([3.0 * (dist - road_width) / max_height.powf(0.75)])
+            Luma([if dist < road_width {
+                dist - road_width
+            } else {
+                3.0 * (dist - road_width) / max_height.powf(0.75)
+            }])
         })
     }
 

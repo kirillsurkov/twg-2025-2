@@ -36,15 +36,12 @@ pub enum AttackKind {
     Melee,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum State {
     Idle,
     Walk {
         aggro_timer: f32,
         aggro_entity: Entity,
-        aggro_nearest_node: NodeIndex,
-        walk_path: VecDeque<Vec2>,
-        walk_target: Option<Vec2>,
     },
     Attack {
         timer_prepare: f32,
@@ -157,8 +154,8 @@ fn ai(
     mut enemies: Query<(Entity, &mut Enemy, &mut Physics)>,
     time: Res<Time>,
 ) {
-    let aggro_distance = 50.0;
-    let aggro_timer = 3.0;
+    let default_aggro_distance = 50.0;
+    let default_aggro_timer = 3.0;
 
     let player_pos = transforms.get(*player).unwrap().translation.xz();
 
@@ -173,13 +170,10 @@ fn ai(
 
         match enemy.state.clone() {
             State::Idle => {
-                if player_pos.distance(pos) < aggro_distance {
+                if player_pos.distance(pos) < default_aggro_distance {
                     enemy.state = State::Walk {
-                        aggro_timer,
+                        aggro_timer: default_aggro_timer,
                         aggro_entity: *player,
-                        aggro_nearest_node: NodeIndex::end(),
-                        walk_path: VecDeque::new(),
-                        walk_target: None,
                     };
                 } else {
                     enemy.animation = Some(Animation::Idle);
@@ -188,69 +182,58 @@ fn ai(
             State::Walk {
                 mut aggro_timer,
                 aggro_entity,
-                mut aggro_nearest_node,
-                mut walk_path,
-                mut walk_target,
             } => {
                 if aggro_timer <= 0.0 {
                     enemy.state = State::Idle;
                     continue;
                 }
 
-                aggro_timer -= time.delta_secs();
-
                 let aggro_pos = transforms.get(aggro_entity).unwrap().translation.xz();
-                let nearest_node = level.nearest_id_terrain(1, aggro_pos)[0];
+                let aggro_pos_reachable = if -level.height(aggro_pos) < physics.radius {
+                    aggro_pos + level.normal_2d(aggro_pos) * physics.radius
+                } else {
+                    aggro_pos
+                };
+                let aggro_dist = pos.distance(aggro_pos);
 
-                if aggro_nearest_node != nearest_node {
-                    aggro_nearest_node = nearest_node;
-                    let (_, new_path) = astar(
-                        &level.graph,
-                        nearest_node,
-                        |id| id == nearest_node,
-                        |e| *e.weight(),
-                        |_| 0.0,
-                    )
-                    .unwrap();
-                    walk_path = new_path
-                        .into_iter()
-                        .map(|node| *level.graph.node_weight(node).unwrap())
-                        .collect();
+                if aggro_dist > default_aggro_distance {
+                    aggro_timer -= time.delta_secs();
+                } else {
+                    aggro_timer = default_aggro_timer;
                 }
 
-                walk_path.push_back(aggro_pos + level.normal_2d(aggro_pos) * physics.radius);
+                let nearest_node = level.nearest_id_terrain(1, pos)[0];
+                let aggro_nearest_node = level.nearest_id_terrain(1, aggro_pos)[0];
 
-                while let Some(target) = walk_path.pop_front() {
-                    let Some(dir) = (target - pos).try_normalize() else {
-                        continue;
-                    };
+                let (_, walk_path) = astar(
+                    &level.graph,
+                    nearest_node,
+                    |id| id == aggro_nearest_node,
+                    |e| *e.weight(),
+                    |_| 0.0,
+                )
+                .unwrap();
 
-                    let can_pass = {
-                        let mut march_pos = pos;
-                        loop {
-                            let max_dist = -level.height(march_pos);
-                            if march_pos.distance(target) <= max_dist {
-                                break true;
-                            }
-                            if max_dist < physics.radius * 0.9 {
-                                break false;
-                            }
-                            march_pos += dir * max_dist;
-                        }
-                    };
-
-                    if can_pass {
-                        walk_target = Some(target);
-                    } else {
-                        walk_path.push_front(target);
-                        break;
+                for target in walk_path
+                    .into_iter()
+                    .map(|node| *level.graph.node_weight(node).unwrap())
+                    .chain([aggro_pos_reachable])
+                {
+                    print!("{target:?} ");
+                    if level.can_walk(pos, target, physics.radius - 0.001) {
+                        physics.move_vec = target - pos;
                     }
                 }
+                println!(" - {:?}", physics.move_vec);
 
-                walk_path.pop_back();
+                physics.look_to = physics.look_to.slerp(
+                    Dir2::new(-physics.move_vec).unwrap_or(Dir2::NEG_Y),
+                    time.delta_secs() * 10.0,
+                );
 
-                let dist = aggro_pos.distance(pos);
-                if walk_path.is_empty() && dist <= enemy.attack_range {
+                if aggro_dist <= enemy.attack_range
+                    && level.can_walk(pos, aggro_pos_reachable, physics.radius)
+                {
                     enemy.state = State::Attack {
                         timer_prepare: 0.5,
                         timer_action: 0.5,
@@ -260,29 +243,13 @@ fn ai(
                         ranged_done: false,
                     };
                     enemy.animation = Some(Animation::Attack);
-                    continue;
                 } else {
+                    enemy.state = State::Walk {
+                        aggro_timer,
+                        aggro_entity,
+                    };
                     enemy.animation = Some(Animation::Walk);
                 }
-
-                if let Some(target) = walk_target {
-                    physics.move_vec = target - pos;
-                    physics.look_to = physics.look_to.slerp(
-                        Dir2::new(-physics.move_vec).unwrap_or(Dir2::NEG_Y),
-                        time.delta_secs() * 10.0,
-                    );
-                    if physics.move_vec.length() < 0.01 {
-                        walk_target = None;
-                    }
-                }
-
-                enemy.state = State::Walk {
-                    aggro_timer,
-                    aggro_entity,
-                    aggro_nearest_node,
-                    walk_path,
-                    walk_target,
-                };
             }
             State::Attack {
                 mut timer_prepare,
@@ -304,7 +271,8 @@ fn ai(
                     match enemy.attack {
                         AttackKind::Melee => {
                             physics.move_vec = diff;
-                            physics.speed = 2.0 * diff.length() / enemy.attack_delay;
+                            physics.speed =
+                                2.0 * diff.length().min(enemy.attack_range) / enemy.attack_delay;
                             physics.ignore_overlap = true;
                         }
                         AttackKind::Ranged if !ranged_done => {
