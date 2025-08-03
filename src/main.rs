@@ -11,14 +11,18 @@ use bevy_hanabi::HanabiPlugin;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
 
 use crate::{
-    enemy::{glutton::Glutton, spider::Spider, wormbeak::Wormbeak, Enemy, EnemyPlugin},
+    enemy::{
+        Enemy, EnemyPlugin, glutton::Glutton, mushroom::Mushroom, seal::Seal, spider::Spider,
+        tree::Tree, turret::Turret, wolf::Wolf, wormbeak::Wormbeak,
+    },
     level::{Level, LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
     model_loader::ModelLoaderPlugin,
     player::{Player, PlayerPlugin},
     projectile::ProjectilePlugin,
     terrain::TerrainPlugin,
     weapon::{
-        biogun::Biogun, blaster::Blaster, ion_cannon::IonCannon, pulse_rifle::PulseRifle, zapper::Zapper, WeaponPlugin
+        WeaponPlugin, biogun::Biogun, blaster::Blaster, ion_cannon::IonCannon,
+        pulse_rifle::PulseRifle, zapper::Zapper,
     },
 };
 
@@ -65,7 +69,7 @@ fn main() {
 const BASE_WIDTH: f32 = 120.0;
 const BASE_HEIGHT: f32 = 120.0;
 
-fn area_start() -> LevelPart {
+fn area_home() -> LevelPart {
     LevelPartBuilder::new(LevelBiome::Home)
         .with_size(BASE_WIDTH, BASE_HEIGHT)
         .with_count(5)
@@ -87,7 +91,7 @@ fn area_safe() -> LevelPart {
         .build()
 }
 
-fn area_center(number: usize) -> LevelPart {
+fn area_forest() -> LevelPart {
     LevelPartBuilder::new(LevelBiome::Forest)
         .with_size(BASE_WIDTH, BASE_HEIGHT)
         .with_count(40)
@@ -95,31 +99,68 @@ fn area_center(number: usize) -> LevelPart {
         .build()
 }
 
-fn area_left(number: usize) -> LevelPart {
+fn area_cave() -> LevelPart {
     LevelPartBuilder::new(LevelBiome::Cave)
-        .with_size(BASE_WIDTH * 0.25, BASE_HEIGHT)
+        .with_size(BASE_WIDTH, BASE_HEIGHT)
+        .with_count(40)
+        .with_fill_ratio(0.2)
+        .build()
+}
+
+fn area_mushroom() -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Mushroom)
+        .with_size(BASE_WIDTH * 0.5, BASE_HEIGHT)
         .with_count(20)
         .with_fill_ratio(0.2)
         .build()
 }
 
-fn area_right(number: usize) -> LevelPart {
-    LevelPartBuilder::new(LevelBiome::Cave)
-        .with_size(BASE_WIDTH * 0.25, BASE_HEIGHT)
+fn area_temple() -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Temple)
+        .with_size(BASE_WIDTH, BASE_HEIGHT)
+        .with_count(40)
+        .with_fill_ratio(0.2)
+        .build()
+}
+
+fn area_meat() -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Meat)
+        .with_size(BASE_WIDTH * 0.5, BASE_HEIGHT)
         .with_count(20)
         .with_fill_ratio(0.2)
+        .build()
+}
+
+fn area_boss() -> LevelPart {
+    LevelPartBuilder::new(LevelBiome::Boss)
+        .with_size(BASE_WIDTH, BASE_HEIGHT * 0.1)
+        .with_count(1)
+        .with_fill_ratio(1.0)
+        .with_points(vec![
+            Vec2::new(-BASE_WIDTH * 0.4, -BASE_HEIGHT * 0.1 * 0.4),
+            Vec2::new(-BASE_WIDTH * 0.4, 0.0),
+            Vec2::new(BASE_WIDTH * 0.4, 0.0),
+            Vec2::new(BASE_WIDTH * 0.4, -BASE_HEIGHT * 0.1 * 0.4),
+        ])
         .build()
 }
 
 fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
     let mut level_builder = LevelBuilder::new();
-    let mut id = level_builder.add(Vec2::ZERO, area_start());
-    for i in 1..=2 {
-        id = level_builder.add_after(id, PartAlign::Down, area_center(i));
-        level_builder.add_after(id, PartAlign::Left, area_left(i));
-        level_builder.add_after(id, PartAlign::Right, area_right(i));
-        id = level_builder.add_after(id, PartAlign::Down, area_safe());
-    }
+
+    let mut id = level_builder.add(Vec2::ZERO, area_home());
+
+    id = level_builder.add_after(id, PartAlign::Down, area_forest());
+
+    id = level_builder.add_after(id, PartAlign::Down, area_cave());
+    level_builder.add_after(id, PartAlign::Left, area_mushroom());
+    id = level_builder.add_after(id, PartAlign::Down, area_safe());
+
+    id = level_builder.add_after(id, PartAlign::Down, area_temple());
+    level_builder.add_after(id, PartAlign::Right, area_meat());
+    id = level_builder.add_after(id, PartAlign::Down, area_safe());
+
+    level_builder.add_after(id, PartAlign::Down, area_boss());
 
     let level = level_builder.build(4.0);
 
@@ -160,13 +201,8 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
     ));
 
     commands.spawn((
-        Glutton,
+        Mushroom,
         Transform::from_translation((spawn_point + step * 5.0).extend(0.0).xzy()),
-    ));
-
-    commands.spawn((
-        Wormbeak,
-        Transform::from_translation((spawn_point + step * 6.0).extend(0.0).xzy()),
     ));
 
     commands.insert_resource(level);
@@ -176,15 +212,24 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
         Transform::from_xyz(player_xy.x, 0.0, player_xy.y),
     ));
 
-    for (x, y) in [(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)] {
+    let mut shadows = true;
+    for (x, y) in [
+        (0.0, 0.0),
+        (-1.0, -1.0),
+        (-1.0, 1.0),
+        (1.0, -1.0),
+        (1.0, 1.0),
+    ] {
         commands.spawn((
             DirectionalLight {
-                illuminance: 200.0,
+                illuminance: 100.0,
+                shadows_enabled: shadows,
                 ..Default::default()
             },
             Transform::default().looking_to(Vec3::new(x, -1.0, y), Vec3::Y),
             RenderLayers::from_layers(&[0, 1]),
         ));
+        shadows = false;
     }
 
     window.cursor_options.grab_mode = CursorGrabMode::Confined;

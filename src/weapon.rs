@@ -1,6 +1,6 @@
 use std::{f32::consts::TAU, time::Duration};
 
-use bevy::{prelude::*, render::view::RenderLayers};
+use bevy::{pbr::NotShadowCaster, prelude::*, render::view::RenderLayers};
 
 use crate::{
     level::Level,
@@ -94,6 +94,7 @@ fn drop_weapon(
         commands
             .entity(entity)
             .insert(Transform::from_translation(player_pos))
+            .remove_recursive::<Children, NotShadowCaster>()
             .remove::<DropWeapon>();
     }
 }
@@ -102,6 +103,7 @@ fn pick_weapon(
     mut commands: Commands,
     mut weapons: Query<(Entity, &mut Weapon), With<PickWeapon>>,
     mut transforms: Query<&mut Transform>,
+    children: Query<&Children>,
     player: Single<&mut Player>,
 ) {
     for (entity, mut weapon) in &mut weapons {
@@ -115,6 +117,9 @@ fn pick_weapon(
             .entity(entity)
             .insert(Transform::default())
             .remove::<PickWeapon>();
+        for entity in children.iter_descendants(entity).chain([entity]) {
+            commands.entity(entity).insert(NotShadowCaster);
+        }
     }
 }
 

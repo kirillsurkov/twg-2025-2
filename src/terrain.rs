@@ -2,7 +2,7 @@ use bevy::{
     asset::RenderAssetUsages,
     image::{ImageAddressMode, ImageFilterMode, ImageSampler, ImageSamplerDescriptor},
     math::bounding::Aabb3d,
-    pbr::{ExtendedMaterial, MaterialExtension},
+    pbr::{ExtendedMaterial, MaterialExtension, NotShadowCaster},
     prelude::*,
     render::render_resource::{AsBindGroup, Extent3d, ShaderRef, TextureDimension, TextureFormat},
     utils::Parallel,
@@ -277,6 +277,7 @@ fn init_chunks(
 
     for (entity, mesh, biome_mask) in meshes_queue.drain() {
         commands.entity(entity).insert((
+            NotShadowCaster,
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(ExtendedMaterial {
                 base: StandardMaterial::default(),

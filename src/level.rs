@@ -1,7 +1,4 @@
-use std::{
-    collections::{BinaryHeap, HashMap},
-    f32::consts::E,
-};
+use std::{collections::BinaryHeap, f32::consts::E};
 
 use bevy::prelude::*;
 use fast_poisson::Poisson2D;
@@ -123,8 +120,9 @@ pub enum LevelBiome {
     Home,
     Forest,
     Cave,
-    Ice,
+    Mushroom,
     Temple,
+    Meat,
     Boss,
 }
 
@@ -135,8 +133,9 @@ impl LevelBiome {
             Self::Home => BiomePixel::AREA_HOME,
             Self::Forest => BiomePixel::AREA_FOREST,
             Self::Cave => BiomePixel::AREA_CAVE,
-            Self::Ice => BiomePixel::AREA_ICE,
+            Self::Mushroom => BiomePixel::AREA_MUSHROOM,
             Self::Temple => BiomePixel::AREA_TEMPLE,
+            Self::Meat => BiomePixel::AREA_MEAT,
             Self::Boss => BiomePixel::AREA_BOSS,
         }
     }
@@ -635,10 +634,11 @@ impl BiomePixel {
     pub const AREA_HOME: usize = 2;
     pub const AREA_FOREST: usize = 3;
     pub const AREA_CAVE: usize = 4;
-    pub const AREA_ICE: usize = 5;
+    pub const AREA_MUSHROOM: usize = 5;
     pub const AREA_TEMPLE: usize = 6;
-    pub const AREA_BOSS: usize = 7;
-    pub const END_BIOME: usize = 8;
+    pub const AREA_MEAT: usize = 7;
+    pub const AREA_BOSS: usize = 8;
+    pub const END_BIOME: usize = 9;
 }
 
 impl Pixel for BiomePixel {
