@@ -78,31 +78,6 @@ fn setup(mut commands: Commands, projectiles: Query<Entity, Added<Projectile>>) 
     }
 }
 
-fn point_in_aabb(point: Vec3, aabb: Aabb3d) -> bool {
-    (aabb.min.x..=aabb.max.x).contains(&point.x)
-        && (aabb.min.y..=aabb.max.y).contains(&point.y)
-        && (aabb.min.z..=aabb.max.z).contains(&point.z)
-}
-
-fn aabb_ray_intersection(aabb: Aabb3d, ray: Ray3d) -> Option<f32> {
-    let inv_dir = ray.direction.recip();
-
-    let t0s = (Vec3::from(aabb.min) - ray.origin) * inv_dir;
-    let t1s = (Vec3::from(aabb.max) - ray.origin) * inv_dir;
-
-    let t_min = t0s.min(t1s);
-    let t_max = t0s.max(t1s);
-
-    let t_enter = t_min.max_element();
-    let t_exit = t_max.min_element();
-
-    if t_exit >= t_enter.max(0.0) {
-        Some(t_enter.max(0.0))
-    } else {
-        None
-    }
-}
-
 fn aabb_sphere_intersection(aabb: Aabb3d, center: Vec3, radius: f32) -> bool {
     let mut dmin = 0.0;
 

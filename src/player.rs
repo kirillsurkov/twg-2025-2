@@ -87,6 +87,7 @@ fn init(mut commands: Commands, player: Single<(Entity, &mut Player), Added<Play
             0.5,
             12.0,
             Aabb3d::new(Vec3::new(0.0, 0.9, 0.0), Vec3::new(0.5, 1.8, 0.5) * 0.5),
+            true,
         ))
         .add_child(player.world_camera);
 }

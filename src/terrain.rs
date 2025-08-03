@@ -156,7 +156,7 @@ impl Textures {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct Physics {
     pub radius: f32,
     pub speed: f32,
@@ -167,14 +167,14 @@ pub struct Physics {
 }
 
 impl Physics {
-    pub fn new(radius: f32, speed: f32, hitbox: Aabb3d) -> Self {
+    pub fn new(radius: f32, speed: f32, hitbox: Aabb3d, ignore_overlap: bool) -> Self {
         Self {
             radius,
             speed,
             hitbox,
             move_vec: Vec2::ZERO,
             look_to: Dir2::NEG_Y,
-            ignore_overlap: false,
+            ignore_overlap,
         }
     }
 }

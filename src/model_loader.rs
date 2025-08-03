@@ -215,7 +215,7 @@ fn load_model(
                                 *speed,
                                 shoot_point,
                             ))
-                            .insert(Physics::new(radius, *speed, hitbox))
+                            .insert(Physics::new(radius, *speed, hitbox, false))
                             .with_child((
                                 // Mesh3d(
                                 //     meshes

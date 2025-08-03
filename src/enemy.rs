@@ -1,6 +1,9 @@
 use std::time::Duration;
 
-use bevy::prelude::*;
+use bevy::{
+    math::bounding::{Aabb3d, BoundingVolume},
+    prelude::*,
+};
 use petgraph::algo::astar;
 
 use crate::{
@@ -56,7 +59,7 @@ enum State {
     Attack {
         timer_prepare: f32,
         timer_action: f32,
-        ranged_done: bool,
+        damage_done: bool,
         origin: Vec2,
         target: Entity,
         target_pos: Vec2,
@@ -155,13 +158,40 @@ fn animate(
     }
 }
 
+fn point_in_aabb(point: Vec3, aabb: Aabb3d) -> bool {
+    (aabb.min.x..=aabb.max.x).contains(&point.x)
+        && (aabb.min.y..=aabb.max.y).contains(&point.y)
+        && (aabb.min.z..=aabb.max.z).contains(&point.z)
+}
+
+fn aabb_ray_intersection(aabb: Aabb3d, ray: Ray3d) -> bool {
+    let inv_dir = ray.direction.recip();
+
+    let t0s = (Vec3::from(aabb.min) - ray.origin) * inv_dir;
+    let t1s = (Vec3::from(aabb.max) - ray.origin) * inv_dir;
+
+    let t_min = t0s.min(t1s);
+    let t_max = t0s.max(t1s);
+
+    let t_enter = t_min.max_element();
+    let t_exit = t_max.min_element();
+
+    t_exit >= t_enter.max(0.0)
+}
+
+fn aabb_segment_intersection(aabb: Aabb3d, segment: Segment3d) -> bool {
+    aabb_ray_intersection(aabb, Ray3d::new(segment.point1(), segment.direction()))
+        && aabb_ray_intersection(aabb, Ray3d::new(segment.point2(), -segment.direction()))
+}
+
 fn ai(
     mut commands: Commands,
     level: Res<Level>,
     player: Single<Entity, With<Player>>,
     transforms: Query<&Transform>,
     global_transforms: Query<&GlobalTransform>,
-    mut enemies: Query<(Entity, &mut Enemy, &mut Physics)>,
+    mut enemies: Query<(Entity, &mut Enemy)>,
+    mut all_physics: Query<&mut Physics>,
     time: Res<Time>,
 ) {
     let default_aggro_distance = 50.0;
@@ -169,14 +199,16 @@ fn ai(
 
     let player_pos = transforms.get(*player).unwrap().translation.xz();
 
-    for (entity, mut enemy, mut physics) in &mut enemies {
+    for (entity, mut enemy) in &mut enemies {
         let transform = transforms.get(entity).unwrap();
         let pos_3d = transform.translation;
         let pos = pos_3d.xz();
 
+        let mut physics = all_physics.get_mut(entity).unwrap();
         physics.move_vec = Vec2::ZERO;
         physics.speed = enemy.speed;
         physics.ignore_overlap = false;
+        drop(physics);
 
         match enemy.state.clone() {
             State::Idle => {
@@ -197,6 +229,8 @@ fn ai(
                     enemy.state = State::Idle;
                     continue;
                 }
+
+                let mut physics = all_physics.get_mut(entity).unwrap();
 
                 let aggro_pos = transforms.get(aggro_entity).unwrap().translation.xz();
                 let aggro_pos_reachable = if -level.height(aggro_pos) < physics.radius {
@@ -248,7 +282,7 @@ fn ai(
                         origin: pos,
                         target: aggro_entity,
                         target_pos: aggro_pos,
-                        ranged_done: false,
+                        damage_done: false,
                     };
                     enemy.animation = Some(Animation::Attack);
                 } else {
@@ -265,8 +299,11 @@ fn ai(
                 origin,
                 target,
                 mut target_pos,
-                mut ranged_done,
+                mut damage_done,
             } => {
+                let target_physics = all_physics.get(target).unwrap().clone();
+                let mut physics = all_physics.get_mut(entity).unwrap();
+
                 let diff = target_pos - origin;
                 physics.look_to = Dir2::new(-diff).unwrap_or(Dir2::NEG_Y);
 
@@ -282,9 +319,84 @@ fn ai(
                             physics.speed =
                                 2.0 * diff.length().min(enemy.attack_range) / enemy.attack_delay;
                             physics.ignore_overlap = true;
+                            if !damage_done {
+                                let inverse = global_transforms
+                                    .get(entity)
+                                    .unwrap()
+                                    .compute_matrix()
+                                    .inverse();
+                                let target_transform = global_transforms.get(target).unwrap();
+
+                                let hbmin = inverse.transform_point3(
+                                    target_transform
+                                        .transform_point(target_physics.hitbox.min.into()),
+                                );
+                                let hbmax = inverse.transform_point3(
+                                    target_transform
+                                        .transform_point(target_physics.hitbox.max.into()),
+                                );
+
+                                let segments = [
+                                    Segment3d::new(
+                                        Vec3::new(hbmin.x, hbmin.y, hbmin.z),
+                                        Vec3::new(hbmin.x, hbmax.y, hbmin.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmin.x, hbmax.y, hbmin.z),
+                                        Vec3::new(hbmax.x, hbmax.y, hbmin.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmax.x, hbmax.y, hbmin.z),
+                                        Vec3::new(hbmax.x, hbmin.y, hbmin.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmax.x, hbmin.y, hbmin.z),
+                                        Vec3::new(hbmin.x, hbmin.y, hbmin.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmin.x, hbmin.y, hbmax.z),
+                                        Vec3::new(hbmin.x, hbmax.y, hbmax.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmin.x, hbmax.y, hbmax.z),
+                                        Vec3::new(hbmax.x, hbmax.y, hbmax.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmax.x, hbmax.y, hbmax.z),
+                                        Vec3::new(hbmax.x, hbmin.y, hbmax.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmax.x, hbmin.y, hbmax.z),
+                                        Vec3::new(hbmin.x, hbmin.y, hbmax.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmin.x, hbmin.y, hbmin.z),
+                                        Vec3::new(hbmin.x, hbmin.y, hbmax.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmin.x, hbmax.y, hbmin.z),
+                                        Vec3::new(hbmin.x, hbmax.y, hbmax.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmax.x, hbmin.y, hbmin.z),
+                                        Vec3::new(hbmax.x, hbmin.y, hbmax.z),
+                                    ),
+                                    Segment3d::new(
+                                        Vec3::new(hbmax.x, hbmax.y, hbmin.z),
+                                        Vec3::new(hbmax.x, hbmax.y, hbmax.z),
+                                    ),
+                                ];
+
+                                if segments.into_iter().any(|segment| {
+                                    aabb_segment_intersection(physics.hitbox, segment)
+                                }) {
+                                    damage_done = true;
+                                    println!("MELEE HIT");
+                                }
+                            }
                         }
-                        AttackKind::Ranged if !ranged_done => {
-                            ranged_done = true;
+                        AttackKind::Ranged if !damage_done => {
+                            damage_done = true;
                             let shoot_point = global_transforms
                                 .get(enemy.scene)
                                 .unwrap()
@@ -309,7 +421,7 @@ fn ai(
                     origin,
                     target,
                     target_pos,
-                    ranged_done,
+                    damage_done,
                 };
             }
             State::Death => {
