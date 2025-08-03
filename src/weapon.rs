@@ -5,7 +5,7 @@ use bevy::{pbr::NotShadowCaster, prelude::*, render::view::RenderLayers};
 use crate::{
     level::Level,
     player::Player,
-    projectile::{Damage, bullet::Bullet},
+    projectile::{Damage, SpawnProjectile, bullet::Bullet},
     terrain::Physics,
 };
 
@@ -46,6 +46,7 @@ pub struct Weapon {
     shoot_point: Vec3,
     shoot_delay: f32,
     shoot_timer: f32,
+    projectile: SpawnProjectile,
 }
 
 impl Weapon {
@@ -55,6 +56,7 @@ impl Weapon {
         offset: Vec3,
         shoot_point: Vec3,
         shoot_delay: f32,
+        projectile: SpawnProjectile,
     ) -> Self {
         Self {
             state: State::OnGround,
@@ -64,6 +66,7 @@ impl Weapon {
             shoot_point,
             shoot_delay,
             shoot_timer: 0.0,
+            projectile,
         }
     }
 }
@@ -260,11 +263,11 @@ fn shoot(
             let shoot_point =
                 shoot_point.origin + shoot_point.direction * player_physics.radius * 0.5;
             println!("SHOOT! {isec}");
-            commands.spawn((
+            weapon.projectile.spawn(
+                &mut commands,
                 Transform::from_translation(shoot_point).looking_at(isec, Vec3::Y),
-                Bullet,
                 Damage::Enemy,
-            ));
+            );
             weapon.shoot_timer += weapon.shoot_delay;
         }
         if weapon.shoot_timer > 0.0 {

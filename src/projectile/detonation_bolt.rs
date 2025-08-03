@@ -5,18 +5,18 @@ use bevy_hanabi::{
     SizeOverLifetimeModifier, SpawnerSettings,
 };
 
-use crate::projectile::Projectile;
+use crate::projectile::{Projectile, SpawnProjectile};
 
 #[derive(Component)]
-pub struct Bullet;
+pub struct DetonationBolt;
 
 pub fn setup(
     mut commands: Commands,
     mut effects: ResMut<Assets<EffectAsset>>,
     mut effect: Local<Option<Handle<EffectAsset>>>,
-    entities: Query<Entity, Added<Bullet>>,
+    entities: Query<Entity, Added<DetonationBolt>>,
 ) {
-    let particle_lifetime = 0.2;
+    let particle_lifetime = 0.1;
     let effect = effect.get_or_insert({
         let writer = ExprWriter::new();
         let init_age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
@@ -41,7 +41,7 @@ pub fn setup(
                 SpawnerSettings::rate((64.0 / particle_lifetime).into()),
                 writer.finish(),
             )
-            .with_name("Bullet")
+            .with_name("Blast")
             .init(init_age)
             .init(init_lifetime)
             .init(init_pos)
@@ -52,7 +52,7 @@ pub fn setup(
                 rotation: None,
             })
             .render(SizeOverLifetimeModifier {
-                gradient: Gradient::linear(Vec3::splat(0.1), Vec3::ZERO),
+                gradient: Gradient::linear(Vec3::splat(0.3), Vec3::ZERO),
                 screen_space_size: false,
             }),
         )
@@ -62,12 +62,12 @@ pub fn setup(
             Projectile {
                 speed: 50.0,
                 velocity: Vec3::ZERO,
-                aceleration: Vec3::ZERO,
+                aceleration: Vec3::new(0.0, -40.0, 0.0),
                 lifetime: 3.0,
                 particle_lifetime,
-                bounces: 3,
+                bounces: 1,
                 damage: 1.0,
-                on_bounce: None,
+                on_bounce: Some(SpawnProjectile::Explosion),
             },
             ParticleEffect::new(effect.clone_weak()),
             NoFrustumCulling,

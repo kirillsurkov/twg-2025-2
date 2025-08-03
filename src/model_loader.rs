@@ -6,6 +6,7 @@ use bevy::{
 
 use crate::{
     enemy::{AttackKind, Enemy},
+    projectile::SpawnProjectile,
     terrain::Physics,
     weapon::Weapon,
 };
@@ -29,6 +30,7 @@ pub enum ReadyAction {
     Weapon {
         offset: Vec3,
         shoot_delay: f32,
+        projectile: SpawnProjectile,
     },
 }
 
@@ -227,6 +229,7 @@ fn load_model(
                     ReadyAction::Weapon {
                         offset,
                         shoot_delay,
+                        projectile,
                     } => {
                         let Some(entity_anim_player) = children
                             .iter_descendants(entity)
@@ -261,6 +264,7 @@ fn load_model(
                             *offset,
                             shoot_point,
                             *shoot_delay,
+                            *projectile,
                         ));
                     }
                 }

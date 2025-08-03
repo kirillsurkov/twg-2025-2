@@ -1,8 +1,17 @@
 use bevy::{math::bounding::Aabb3d, prelude::*};
 
-use crate::{DeferDespawn, enemy::Enemy, level::Level, player::Player, terrain::Physics};
+use crate::{
+    DeferDespawn,
+    enemy::Enemy,
+    level::Level,
+    player::Player,
+    projectile::{bullet::Bullet, detonation_bolt::DetonationBolt, explosion::Explosion},
+    terrain::Physics,
+};
 
 pub mod bullet;
+pub mod detonation_bolt;
+pub mod explosion;
 
 pub struct ProjectilePlugin;
 
@@ -11,19 +20,46 @@ impl Plugin for ProjectilePlugin {
         app.add_systems(Update, setup);
         app.add_systems(Update, update.after(setup));
         app.add_systems(Update, bullet::setup);
+        app.add_systems(Update, detonation_bolt::setup);
+        app.add_systems(Update, explosion::setup);
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum SpawnProjectile {
+    Bullet,
+    DetonationBolt,
+    Explosion,
+}
+
+impl SpawnProjectile {
+    pub fn spawn(&self, commands: &mut Commands, transform: Transform, damage: Damage) {
+        let mut entity = commands.spawn(transform);
+        match self {
+            Self::Bullet => entity.insert(Bullet),
+            Self::DetonationBolt => entity.insert(DetonationBolt),
+            Self::Explosion => entity.insert(Explosion),
+        };
+        match self {
+            Self::Explosion => entity.insert(Damage::All),
+            _ => entity.insert(damage),
+        };
     }
 }
 
 #[derive(Component)]
 pub struct Projectile {
     pub speed: f32,
+    pub velocity: Vec3,
+    pub aceleration: Vec3,
     pub lifetime: f32,
     pub particle_lifetime: f32,
     pub bounces: i32,
     pub damage: f32,
+    pub on_bounce: Option<SpawnProjectile>,
 }
 
-#[derive(Component)]
+#[derive(Component, Clone, Copy)]
 pub enum Damage {
     Player,
     Enemy,
@@ -67,6 +103,20 @@ fn aabb_ray_intersection(aabb: Aabb3d, ray: Ray3d) -> Option<f32> {
     }
 }
 
+fn aabb_sphere_intersection(aabb: Aabb3d, center: Vec3, radius: f32) -> bool {
+    let mut dmin = 0.0;
+
+    for i in 0..3 {
+        if center[i] < aabb.min[i] {
+            dmin += (center[i] - aabb.min[i]).powi(2);
+        } else if center[i] > aabb.max[i] {
+            dmin += (center[i] - aabb.max[i]).powi(2);
+        }
+    }
+
+    dmin <= radius.powi(2)
+}
+
 fn update(
     mut commands: Commands,
     mut projectiles: Query<(Entity, &mut Projectile, &Damage, &mut Transform), With<Ready>>,
@@ -86,10 +136,15 @@ fn update(
         let pos = transform.translation;
         let delta = time.delta_secs();
         let dir = transform.forward();
-        let desired_pos = pos + dir * projectile.speed * delta;
+
+        let delta_vel = projectile.aceleration * delta;
+        projectile.velocity += delta_vel;
+
+        let offset = (dir * projectile.speed + projectile.velocity) * delta;
+        let desired_pos = pos + offset;
 
         let mut hit = None;
-        for (entity, _) in level.nearest_creatures(10, pos) {
+        for (entity, _) in level.nearest_creatures(5, pos) {
             let Ok((transform, physics, player, enemy)) = transforms.get(entity) else {
                 continue;
             };
@@ -104,15 +159,10 @@ fn update(
             let inverse = transform.compute_matrix().inverse();
             let from = inverse.transform_point3(pos);
             let to = inverse.transform_point3(desired_pos);
+            let step = (to - from) / 10.0;
 
-            if let Some(intersect) = Dir3::new(to - from)
-                .ok()
-                .and_then(|dir| {
-                    aabb_ray_intersection(physics.hitbox, Ray3d::new(to, -dir))
-                        .and_then(|_| aabb_ray_intersection(physics.hitbox, Ray3d::new(from, dir)))
-                        .map(|dist| from + dir * dist)
-                })
-                .or_else(|| point_in_aabb(from, physics.hitbox).then_some(from))
+            if (0..=10)
+                .any(|i| aabb_sphere_intersection(physics.hitbox, from + step * i as f32, 0.1))
             {
                 hit = Some(entity);
                 break;
@@ -132,6 +182,10 @@ fn update(
         if new_pos.distance(desired_pos) >= f32::EPSILON {
             transform.look_to(dir.reflect(level.normal_3d(new_pos.xz())), Vec3::Y);
             projectile.bounces -= 1;
+            projectile.velocity = -projectile.velocity;
+            if let Some(action) = projectile.on_bounce {
+                action.spawn(&mut commands, transform.clone(), *damage);
+            }
         }
         transform.translation = new_pos;
         projectile.lifetime -= delta;
