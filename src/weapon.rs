@@ -7,6 +7,7 @@ use crate::{
     player::Player,
     projectile::{Damage, SpawnProjectile, bullet::Bullet},
     terrain::Physics,
+    ui::UserNotify,
 };
 
 pub mod biogun;
@@ -129,8 +130,8 @@ fn pick_weapon(
 fn update(
     mut commands: Commands,
     player: Single<(&mut Player, &GlobalTransform)>,
-    weapons2: Query<(Entity, &GlobalTransform), With<Weapon>>,
-    mut weapons: Query<&mut Weapon>,
+    mut weapons: Query<(Entity, &GlobalTransform, &mut Weapon)>,
+    mut user_notify: EventWriter<UserNotify>,
 ) {
     let layer_world = RenderLayers::layer(0);
     let layer_hands = RenderLayers::layer(1);
@@ -139,12 +140,14 @@ fn update(
     let (mut player, player_pos) = player.into_inner();
     let player_pos = player_pos.translation();
 
-    for (entity, transform) in weapons2 {
-        let mut weapon = weapons.get_mut(entity).unwrap();
-        let can_pickup = transform.translation().distance(player_pos) <= pickup_dist;
+    for (entity, transform, mut weapon) in &mut weapons {
+        let can_pickup = transform.translation().xz().distance(player_pos.xz()) <= pickup_dist;
 
         match &mut weapon.state {
             State::OnGround => {
+                if can_pickup {
+                    user_notify.write(UserNotify("Чтобы поднять оружие".to_string()));
+                }
                 if can_pickup && player.interaction {
                     let slot = player.active_slot;
                     if let Ok(mut entity) = commands.get_entity(player.weapons[slot]) {

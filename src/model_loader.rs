@@ -6,6 +6,7 @@ use bevy::{
 
 use crate::{
     enemy::{AttackKind, Enemy},
+    heart::Heart,
     projectile::SpawnProjectile,
     terrain::Physics,
     weapon::Weapon,
@@ -33,6 +34,7 @@ pub enum ReadyAction {
         shoot_delay: f32,
         projectile: SpawnProjectile,
     },
+    Heart,
 }
 
 #[derive(Component)]
@@ -125,21 +127,25 @@ fn load_model(
                             WaitFor::Scene {
                                 name: name.clone(),
                                 scene,
-                                graph_handle: graphs.add(
-                                    match action {
-                                        ReadyAction::Enemy { .. } => AnimationGraph::from_clips([
+                                graph_handle: graphs.add(match action {
+                                    ReadyAction::Enemy { .. } => {
+                                        AnimationGraph::from_clips([
                                             gltf.named_animations["idle"].clone(),
                                             gltf.named_animations["walk"].clone(),
                                             gltf.named_animations["attack"].clone(),
                                             gltf.named_animations["death"].clone(),
-                                        ]),
-                                        ReadyAction::Weapon { .. } => AnimationGraph::from_clips([
+                                        ])
+                                        .0
+                                    }
+                                    ReadyAction::Weapon { .. } => {
+                                        AnimationGraph::from_clips([
                                             gltf.named_animations["idle"].clone(),
                                             gltf.named_animations["shoot"].clone(),
-                                        ]),
+                                        ])
+                                        .0
                                     }
-                                    .0,
-                                ),
+                                    ReadyAction::Heart => AnimationGraph::new(),
+                                }),
                                 action: *action,
                                 scale: *scale,
                             },
@@ -269,6 +275,9 @@ fn load_model(
                             *shoot_delay,
                             *projectile,
                         ));
+                    }
+                    ReadyAction::Heart => {
+                        commands.entity(entity).insert(Heart);
                     }
                 }
             }

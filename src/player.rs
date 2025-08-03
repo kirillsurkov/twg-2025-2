@@ -7,7 +7,7 @@ use bevy::{
     window::{CursorGrabMode, PrimaryWindow},
 };
 
-use crate::terrain::Physics;
+use crate::{projectile::ApplyDamage, terrain::Physics};
 
 pub struct PlayerPlugin;
 
@@ -15,6 +15,7 @@ impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, init);
         app.add_systems(Update, controller.after(init));
+        app.add_systems(Update, update_hp.after(init));
     }
 }
 
@@ -27,10 +28,12 @@ pub struct Player {
     pub interaction: bool,
     pub drop_weapon: bool,
     pub shoot: bool,
+    pub hp: f32,
+    pub max_hp: f32,
 }
 
 impl Player {
-    pub fn new() -> Self {
+    pub fn new(max_hp: f32) -> Self {
         Self {
             world_camera: Entity::PLACEHOLDER,
             weapon_camera: Entity::PLACEHOLDER,
@@ -39,6 +42,8 @@ impl Player {
             interaction: false,
             drop_weapon: false,
             shoot: false,
+            hp: max_hp,
+            max_hp,
         }
     }
 }
@@ -146,4 +151,10 @@ fn controller(
         _ if keys.just_pressed(KeyCode::Digit4) => 3,
         _ => player.active_slot,
     };
+}
+
+fn update_hp(mut commands: Commands, player: Single<(Entity, &mut Player, &ApplyDamage)>) {
+    let (entity, mut player, damage) = player.into_inner();
+    commands.entity(entity).remove::<ApplyDamage>();
+    player.hp -= damage.0;
 }

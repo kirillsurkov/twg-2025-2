@@ -15,11 +15,13 @@ use crate::{
         Enemy, EnemyPlugin, glutton::Glutton, mushroom::Mushroom, seal::Seal, spider::Spider,
         tree::Tree, turret::Turret, wolf::Wolf, wormbeak::Wormbeak,
     },
+    heart::{HeartPlugin, HeartSpawner},
     level::{Level, LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
     model_loader::ModelLoaderPlugin,
     player::{Player, PlayerPlugin},
     projectile::ProjectilePlugin,
     terrain::TerrainPlugin,
+    ui::GameUiPlugin,
     weapon::{
         WeaponPlugin, biogun::Biogun, blaster::Blaster, ion_cannon::IonCannon,
         pulse_rifle::PulseRifle, zapper::Zapper,
@@ -27,11 +29,13 @@ use crate::{
 };
 
 mod enemy;
+mod heart;
 mod level;
 mod model_loader;
 mod player;
 mod projectile;
 mod terrain;
+mod ui;
 mod weapon;
 
 fn main() {
@@ -55,15 +59,17 @@ fn main() {
         .insert_resource(ClearColor(Color::srgba(0.02, 0.02, 0.02, 1.0)))
         .add_systems(Startup, setup)
         .add_systems(Update, defer_despawn)
-        .add_systems(Update, bury)
+        // .add_systems(Update, bury)
         .add_systems(Update, update_level)
         .add_systems(Update, grab_cursor)
-        .add_plugins(PlayerPlugin)
-        .add_plugins(TerrainPlugin)
-        .add_plugins(ModelLoaderPlugin)
         .add_plugins(EnemyPlugin)
-        .add_plugins(WeaponPlugin)
+        .add_plugins(HeartPlugin)
+        .add_plugins(ModelLoaderPlugin)
+        .add_plugins(PlayerPlugin)
         .add_plugins(ProjectilePlugin)
+        .add_plugins(TerrainPlugin)
+        .add_plugins(GameUiPlugin)
+        .add_plugins(WeaponPlugin)
         .run();
 }
 
@@ -206,10 +212,15 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
         Transform::from_translation((spawn_point + step * 5.0).extend(0.0).xzy()),
     ));
 
+    commands.spawn((
+        HeartSpawner,
+        Transform::from_translation((spawn_point + step * 6.0).extend(0.0).xzy()),
+    ));
+
     commands.insert_resource(level);
 
     commands.spawn((
-        Player::new(),
+        Player::new(100.0),
         Transform::from_xyz(player_xy.x, 0.0, player_xy.y),
     ));
 
