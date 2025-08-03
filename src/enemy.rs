@@ -1,7 +1,7 @@
-use std::{collections::VecDeque, time::Duration};
+use std::time::Duration;
 
 use bevy::prelude::*;
-use petgraph::{algo::astar, graph::NodeIndex};
+use petgraph::algo::astar;
 
 use crate::{
     level::Level,
@@ -12,8 +12,13 @@ use crate::{
 
 pub mod beetle;
 pub mod glutton;
+pub mod mushroom;
+pub mod seal;
 pub mod spider;
 pub mod stalker;
+pub mod tree;
+pub mod turret;
+pub mod wolf;
 pub mod wormbeak;
 
 pub struct EnemyPlugin;
@@ -24,8 +29,13 @@ impl Plugin for EnemyPlugin {
         app.add_systems(Update, ai);
         app.add_systems(Update, beetle::setup);
         app.add_systems(Update, glutton::setup);
+        app.add_systems(Update, mushroom::setup);
+        app.add_systems(Update, seal::setup);
         app.add_systems(Update, spider::setup);
         app.add_systems(Update, stalker::setup);
+        app.add_systems(Update, tree::setup);
+        app.add_systems(Update, turret::setup);
+        app.add_systems(Update, wolf::setup);
         app.add_systems(Update, wormbeak::setup);
     }
 }
@@ -219,12 +229,10 @@ fn ai(
                     .map(|node| *level.graph.node_weight(node).unwrap())
                     .chain([aggro_pos_reachable])
                 {
-                    print!("{target:?} ");
                     if level.can_walk(pos, target, physics.radius - 0.001) {
                         physics.move_vec = target - pos;
                     }
                 }
-                println!(" - {:?}", physics.move_vec);
 
                 physics.look_to = physics.look_to.slerp(
                     Dir2::new(-physics.move_vec).unwrap_or(Dir2::NEG_Y),
