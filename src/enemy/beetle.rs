@@ -2,7 +2,7 @@ use bevy::prelude::*;
 
 use crate::{
     enemy::AttackKind,
-    model_loader::{LoadModel, ReadyAction},
+    model_loader::{LoadModel, ReadyAction}, projectile::SpawnProjectile,
 };
 
 #[derive(Component)]
@@ -13,10 +13,11 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Beetle>>) {
         commands.entity(entity).insert(LoadModel::new(
             "beetle",
             ReadyAction::Enemy {
-                attack: AttackKind::Ranged,
+                attack: AttackKind::Ranged(SpawnProjectile::Bullet),
                 attack_range: 15.0,
                 attack_delay: 1.0,
                 speed: 5.0,
+                hp: 450.0,
             },
             Vec3::splat(0.5),
         ));

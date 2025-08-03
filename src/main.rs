@@ -55,6 +55,7 @@ fn main() {
         .insert_resource(ClearColor(Color::srgba(0.02, 0.02, 0.02, 1.0)))
         .add_systems(Startup, setup)
         .add_systems(Update, defer_despawn)
+        .add_systems(Update, bury)
         .add_systems(Update, update_level)
         .add_systems(Update, grab_cursor)
         .add_plugins(PlayerPlugin)
@@ -201,7 +202,7 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
     ));
 
     commands.spawn((
-        Mushroom,
+        Wolf,
         Transform::from_translation((spawn_point + step * 5.0).extend(0.0).xzy()),
     ));
 
@@ -276,6 +277,27 @@ fn defer_despawn(
             commands.entity(entity).despawn();
         } else {
             despawn.0 -= time.delta_secs();
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct Bury {
+    pub meters_per_second: f32,
+    pub time: f32,
+}
+
+fn bury(
+    mut commands: Commands,
+    mut buries: Query<(Entity, &mut Bury, &mut Transform)>,
+    time: Res<Time>,
+) {
+    for (entity, mut bury, mut transform) in &mut buries {
+        bury.time -= time.delta_secs();
+        if bury.time > 0.0 {
+            transform.translation.y += time.delta_secs() * bury.meters_per_second;
+        } else if let Ok(mut entity) = commands.get_entity(entity) {
+            entity.remove::<Bury>();
         }
     }
 }

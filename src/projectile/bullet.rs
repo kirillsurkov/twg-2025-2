@@ -66,7 +66,7 @@ pub fn setup(
                 lifetime: 3.0,
                 particle_lifetime,
                 bounces: 3,
-                damage: 1.0,
+                damage: 3.0,
                 on_bounce: None,
             },
             ParticleEffect::new(effect.clone_weak()),

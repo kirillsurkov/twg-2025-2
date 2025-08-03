@@ -26,6 +26,7 @@ pub enum ReadyAction {
         attack_range: f32,
         attack_delay: f32,
         speed: f32,
+        hp: f32,
     },
     Weapon {
         offset: Vec3,
@@ -161,6 +162,7 @@ fn load_model(
                         attack_range,
                         attack_delay,
                         speed,
+                        hp,
                     } => {
                         let mut anim_player = Entity::PLACEHOLDER;
                         let mut hitbox = Entity::PLACEHOLDER;
@@ -189,9 +191,9 @@ fn load_model(
                         let hitbox = Aabb3d::new(hitbox.translation * scale, hitbox.scale * scale);
 
                         let shoot_point = match (attack, transforms.get(shoot_point)) {
-                            (AttackKind::Ranged, Ok(transform)) => transform.translation,
-                            (AttackKind::Melee, _) => Vec3::ZERO,
-                            (AttackKind::Ranged, Err(_)) => {
+                            (AttackKind::Ranged(_), Ok(transform)) => transform.translation,
+                            (AttackKind::Melee(_), _) => Vec3::ZERO,
+                            (AttackKind::Ranged(_), Err(_)) => {
                                 panic!("Ranged enemy {name} doesn't have a a shoot point")
                             }
                         };
@@ -213,6 +215,7 @@ fn load_model(
                                 *attack_range,
                                 *attack_delay,
                                 *speed,
+                                *hp,
                                 shoot_point,
                             ))
                             .insert(Physics::new(radius, *speed, hitbox, false))

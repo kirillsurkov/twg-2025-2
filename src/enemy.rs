@@ -1,15 +1,13 @@
 use std::time::Duration;
 
-use bevy::{
-    math::bounding::{Aabb3d, BoundingVolume},
-    prelude::*,
-};
+use bevy::{math::bounding::Aabb3d, prelude::*};
 use petgraph::algo::astar;
 
 use crate::{
+    Bury, DeferDespawn,
     level::Level,
     player::Player,
-    projectile::{Damage, bullet::Bullet},
+    projectile::{ApplyDamage, Damage, SpawnProjectile},
     terrain::Physics,
 };
 
@@ -30,6 +28,7 @@ impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, animate);
         app.add_systems(Update, ai);
+        app.add_systems(Update, update_hp);
         app.add_systems(Update, beetle::setup);
         app.add_systems(Update, glutton::setup);
         app.add_systems(Update, mushroom::setup);
@@ -45,8 +44,8 @@ impl Plugin for EnemyPlugin {
 
 #[derive(Clone, Copy)]
 pub enum AttackKind {
-    Ranged,
-    Melee,
+    Ranged(SpawnProjectile),
+    Melee(f32),
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +81,7 @@ pub struct Enemy {
     attack_range: f32,
     attack_delay: f32,
     speed: f32,
+    hp: f32,
     shoot_point: Vec3,
     state: State,
     animation: Option<Animation>,
@@ -95,6 +95,7 @@ impl Enemy {
         attack_range: f32,
         attack_delay: f32,
         speed: f32,
+        hp: f32,
         shoot_point: Vec3,
     ) -> Self {
         Self {
@@ -104,6 +105,7 @@ impl Enemy {
             attack_range,
             attack_delay,
             speed,
+            hp,
             shoot_point,
             state: State::Idle,
             animation: None,
@@ -111,8 +113,19 @@ impl Enemy {
     }
 }
 
+fn update_hp(mut commands: Commands, mut enemies: Query<(Entity, &mut Enemy, &ApplyDamage)>) {
+    for (entity, mut enemy, damage) in &mut enemies {
+        commands.entity(entity).remove::<ApplyDamage>();
+        enemy.hp -= damage.0;
+        if enemy.hp <= 0.0 {
+            enemy.state = State::Death;
+        }
+    }
+}
+
 fn animate(
-    mut enemies: Query<(&mut Enemy, &Physics)>,
+    mut commands: Commands,
+    mut enemies: Query<(Entity, &mut Enemy, &Physics)>,
     mut animation: Query<(
         &mut AnimationPlayer,
         &mut AnimationTransitions,
@@ -126,14 +139,20 @@ fn animate(
     let attack = AnimationNodeIndex::new(3);
     let death = AnimationNodeIndex::new(4);
 
-    for (mut enemy, physics) in &mut enemies {
+    for (entity, mut enemy, physics) in &mut enemies {
         let (mut player, mut transition, graph) = animation.get_mut(enemy.anim_player).unwrap();
 
         let index = match enemy.animation.take() {
             Some(Animation::Idle) => idle,
             Some(Animation::Walk) => walk,
             Some(Animation::Attack) => attack,
-            Some(Animation::Death) => death,
+            Some(Animation::Death) => {
+                commands
+                    .entity(entity)
+                    .remove::<Enemy>()
+                    .remove::<Physics>();
+                death
+            }
             _ => continue,
         };
 
@@ -314,7 +333,7 @@ fn ai(
                 } else if timer_action >= 0.0 {
                     timer_action -= time.delta_secs() / enemy.attack_delay;
                     match enemy.attack {
-                        AttackKind::Melee => {
+                        AttackKind::Melee(damage) => {
                             physics.move_vec = diff;
                             physics.speed =
                                 2.0 * diff.length().min(enemy.attack_range) / enemy.attack_delay;
@@ -391,22 +410,22 @@ fn ai(
                                     aabb_segment_intersection(physics.hitbox, segment)
                                 }) {
                                     damage_done = true;
-                                    println!("MELEE HIT");
+                                    commands.entity(target).insert(ApplyDamage(damage));
                                 }
                             }
                         }
-                        AttackKind::Ranged if !damage_done => {
+                        AttackKind::Ranged(projectile) if !damage_done => {
                             damage_done = true;
                             let shoot_point = global_transforms
                                 .get(enemy.scene)
                                 .unwrap()
                                 .transform_point(enemy.shoot_point);
-                            commands.spawn((
+                            projectile.spawn(
+                                &mut commands,
                                 Transform::from_translation(shoot_point)
                                     .looking_at(target_pos.extend(1.7).xzy(), Vec3::Y),
-                                Bullet,
                                 Damage::Player,
-                            ));
+                            );
                         }
                         _ => {}
                     }
@@ -426,6 +445,13 @@ fn ai(
             }
             State::Death => {
                 enemy.animation = Some(Animation::Death);
+                commands
+                    .entity(entity)
+                    .insert(DeferDespawn(5.0))
+                    .insert(Bury {
+                        time: 5.0,
+                        meters_per_second: 2.0,
+                    });
             }
         }
 
