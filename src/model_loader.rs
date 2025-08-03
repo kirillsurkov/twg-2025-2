@@ -1,7 +1,6 @@
 use bevy::{
     math::bounding::{Aabb3d, BoundingVolume},
     prelude::*,
-    render::view::NoFrustumCulling,
 };
 
 use crate::{
@@ -174,7 +173,6 @@ fn load_model(
                         let mut hitbox = Entity::PLACEHOLDER;
                         let mut shoot_point = Entity::PLACEHOLDER;
                         for entity in children.iter_descendants(entity).chain([entity]) {
-                            commands.entity(entity).insert(NoFrustumCulling);
                             if anim_players.contains(entity) {
                                 anim_player = entity;
                             }

@@ -357,11 +357,15 @@ fn physics(
                 .into_iter()
                 .nth(1)
             {
-                let other_pos = transforms.get(entity).unwrap().translation.xz();
-                let other_radius = queries.get(entity).unwrap().1.radius;
-                let direction = desired_pos - other_pos;
-                let penetration = (physics.radius + other_radius) - direction.length();
-                desired_pos += direction.normalize_or_zero() * penetration.max(0.0) * 2.0;
+                if let Ok(other_pos) = transforms.get(entity) {
+                    let other_pos = other_pos.translation.xz();
+                    if let Ok(other_radius) = queries.get(entity) {
+                        let other_radius = other_radius.1.radius;
+                        let direction = desired_pos - other_pos;
+                        let penetration = (physics.radius + other_radius) - direction.length();
+                        desired_pos += direction.normalize_or_zero() * penetration.max(0.0) * 2.0;
+                    }
+                }
             }
         }
 

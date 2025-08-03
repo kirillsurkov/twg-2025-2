@@ -72,10 +72,8 @@ fn update_notification(
     let mut alpha = color1.alpha();
 
     if notifications.is_empty() {
-        println!("NO NOTIFICATIONS");
         alpha -= time.delta_secs() * 3.0;
     } else {
-        println!("NOTIFICATIONS");
         alpha += time.delta_secs() * 3.0;
     }
 

@@ -9,11 +9,18 @@ use bevy::{
 };
 use bevy_hanabi::HanabiPlugin;
 use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+use bevy_mod_skinned_aabb::SkinnedAabbPlugin;
+use petgraph::visit::EdgeRef;
+use rand::{
+    distr::{Distribution, weighted::WeightedIndex},
+    seq::{IndexedRandom, SliceRandom},
+};
 
 use crate::{
     enemy::{
-        Enemy, EnemyPlugin, glutton::Glutton, mushroom::Mushroom, seal::Seal, spider::Spider,
-        tree::Tree, turret::Turret, wolf::Wolf, wormbeak::Wormbeak,
+        Enemy, EnemyPlugin, beetle::Beetle, glutton::Glutton, mushroom::Mushroom, seal::Seal,
+        spider::Spider, stalker::Stalker, tree::Tree, turret::Turret, wolf::Wolf,
+        wormbeak::Wormbeak,
     },
     heart::{HeartPlugin, HeartSpawner},
     level::{Level, LevelBiome, LevelBuilder, LevelPart, LevelPartBuilder, PartAlign},
@@ -51,6 +58,7 @@ fn main() {
         .add_plugins(HanabiPlugin)
         .add_plugins(EguiPlugin::default())
         .add_plugins(WorldInspectorPlugin::default())
+        .add_plugins(SkinnedAabbPlugin)
         .insert_resource(AmbientLight {
             color: Color::BLACK,
             brightness: 0.0,
@@ -170,6 +178,62 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
     level_builder.add_after(id, PartAlign::Down, area_boss());
 
     let level = level_builder.build(4.0);
+
+    let mut enemy_points = vec![];
+    for edge in level.graph.edge_references() {
+        let source = level.graph.node_weight(edge.source()).unwrap();
+        let target = level.graph.node_weight(edge.target()).unwrap();
+        let dir = (target - source).normalize();
+        let dist = source.distance(*target);
+        for _ in 0..10 {
+            enemy_points.push(source + dir * rand::random_range(0.0..=dist));
+        }
+    }
+
+    let mut rng = rand::rng();
+
+    enemy_points.shuffle(&mut rng);
+
+    let mut spawned = 0;
+    while let Some(point) = enemy_points.pop() {
+        if spawned >= 200 {
+            break;
+        }
+
+        let biome = level.biome(point).0;
+        let Ok(dist) = WeightedIndex::new(&biome[3..=7]) else {
+            continue;
+        };
+
+        let choices = [
+            ["tree", "wolf"],        // forest
+            ["seal", "wormbeak"],    // cave
+            ["mushroom", "stalker"], // mushroom
+            ["spider", "turret"],    // temple
+            ["glutton", "beetle"],   // meat
+        ];
+
+        let Some(choice) = choices[dist.sample(&mut rng)].choose(&mut rng) else {
+            continue;
+        };
+
+        spawned += 1;
+        println!("{choice}: {point:?}");
+        match *choice {
+            "tree" => commands.spawn(Tree),
+            "wolf" => commands.spawn(Wolf),
+            "seal" => commands.spawn(Seal),
+            "wormbeak" => commands.spawn(Wormbeak),
+            "mushroom" => commands.spawn(Mushroom),
+            "stalker" => commands.spawn(Stalker),
+            "spider" => commands.spawn(Spider),
+            "turret" => commands.spawn(Turret),
+            "glutton" => commands.spawn(Glutton),
+            "beetle" => commands.spawn(Beetle),
+            _ => panic!("Unknown enemy {choice}"),
+        }
+        .insert(Transform::from_xyz(point.x, 0.0, point.y));
+    }
 
     let player_xy = level.nearest_terrain(1, Vec2::new(0.0, f32::MAX))[0].unwrap();
     let node = level.nearest_id_terrain(1, player_xy)[0];

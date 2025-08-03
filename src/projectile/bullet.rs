@@ -1,4 +1,4 @@
-use bevy::{prelude::*, render::view::NoFrustumCulling};
+use bevy::prelude::*;
 use bevy_hanabi::{
     Attribute, EffectAsset, ExprWriter, Gradient, OrientMode, OrientModifier, ParticleEffect,
     SetAttributeModifier, SetPositionSphereModifier, SetVelocitySphereModifier, ShapeDimension,
@@ -70,7 +70,6 @@ pub fn setup(
                 on_bounce: None,
             },
             ParticleEffect::new(effect.clone_weak()),
-            NoFrustumCulling,
         ));
     }
 }

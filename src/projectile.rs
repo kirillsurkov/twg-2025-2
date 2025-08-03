@@ -1,4 +1,4 @@
-use bevy::{math::bounding::Aabb3d, prelude::*};
+use bevy::{math::bounding::Aabb3d, prelude::*, render::view::NoFrustumCulling};
 
 use crate::{
     DeferDespawn,
@@ -34,7 +34,7 @@ pub enum SpawnProjectile {
 
 impl SpawnProjectile {
     pub fn spawn(&self, commands: &mut Commands, transform: Transform, damage: Damage) {
-        let mut entity = commands.spawn(transform);
+        let mut entity = commands.spawn((transform, NoFrustumCulling));
         match self {
             Self::Bullet => entity.insert(Bullet),
             Self::DetonationBolt => entity.insert(DetonationBolt),

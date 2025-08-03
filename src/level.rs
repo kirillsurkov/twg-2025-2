@@ -235,7 +235,7 @@ pub enum PartAlign {
 pub struct Level {
     pub graph: Graph<Vec2, f32, Undirected>,
     kd_terrain: KdTree<f32, 2>,
-    kd_creatures: KdTree<f32, 3>,
+    kd_creatures: KdTree<f32, 2>,
     bounds: Rect,
     scale: f32,
     biome_map: ImageBuffer<BiomePixel, Vec<f32>>,
@@ -323,16 +323,23 @@ impl Level {
         let Some(dir) = (to - from).try_normalize() else {
             return true;
         };
-        loop {
+
+        let mut res = false;
+
+        for _ in 0..20 {
             let max_step = -self.height(from);
             if from.distance(to) <= max_step {
-                break true;
+                res = true;
+                break;
             }
             if max_step < radius {
-                break false;
+                res = false;
+                break;
             }
             from += dir * max_step;
         }
+
+        res
     }
 
     pub fn nearest_id_terrain(&self, count: usize, point: Vec2) -> Vec<NodeIndex> {
@@ -355,12 +362,13 @@ impl Level {
     }
 
     pub fn add_creature(&mut self, creature: Entity, pos: Vec3) {
-        self.kd_creatures.add(&pos.to_array(), creature.to_bits());
+        self.kd_creatures
+            .add(&pos.xz().to_array(), creature.to_bits());
     }
 
     pub fn nearest_creatures(&self, count: usize, point: Vec3) -> Vec<(Entity, f32)> {
         self.kd_creatures
-            .nearest_n::<SquaredEuclidean>(&point.to_array(), count)
+            .nearest_n::<SquaredEuclidean>(&point.xz().to_array(), count)
             .into_iter()
             .map(|neighbour| (Entity::from_bits(neighbour.item), neighbour.distance))
             .collect()
