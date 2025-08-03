@@ -10,10 +10,10 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<PulseRifle>>)
         commands.entity(entity).insert(LoadModel::new(
             "gun3",
             ReadyAction::Weapon {
-                offset: Vec3::new(2.5, -1.5, -4.0),
+                offset: Vec3::new(1.5, -2.3, -2.5),
                 shoot_delay: 0.5,
             },
-            Vec3::splat(0.2),
+            Vec3::splat(0.15),
         ));
     }
 }

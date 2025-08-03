@@ -10,7 +10,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<IonCannon>>) 
         commands.entity(entity).insert(LoadModel::new(
             "gun4",
             ReadyAction::Weapon {
-                offset: Vec3::new(2.5, -1.5, -4.0),
+                offset: Vec3::new(2.0, -2.5, -3.0),
                 shoot_delay: 0.5,
             },
             Vec3::splat(0.5),
