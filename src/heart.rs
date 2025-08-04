@@ -24,7 +24,7 @@ pub struct HeartSpawner;
 fn setup(mut commands: Commands, spawners: Query<Entity, Added<HeartSpawner>>) {
     for spawner in spawners {
         commands.entity(spawner).insert(LoadModel::new(
-            "Heart",
+            "heart",
             ReadyAction::Heart,
             Vec3::new(1.5, 1.5, 3.0),
         ));
@@ -58,7 +58,10 @@ fn update(
             .distance(player_transform.translation.xz())
             <= pickup_dist;
         if can_pickup {
-            user_notify.write(UserNotify("Чтобы восполнить здоровье".to_string()));
+            user_notify.write(UserNotify(
+                "Нажмите 'E'".to_string(),
+                "Чтобы восполнить здоровье".to_string(),
+            ));
         }
         if can_pickup && player.interaction {
             commands.entity(entity).despawn();

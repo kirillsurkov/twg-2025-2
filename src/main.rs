@@ -1,8 +1,9 @@
-// #![windows_subsystem = "windows"]
+#![windows_subsystem = "windows"]
 
 use core::f32;
 
 use bevy::{
+    audio::{PlaybackMode, Volume},
     prelude::*,
     render::view::RenderLayers,
     window::{CursorGrabMode, PrimaryWindow, WindowMode},
@@ -17,6 +18,7 @@ use rand::{
 };
 
 use crate::{
+    boss::{BossPlugin, BossSpawner},
     enemy::{
         Enemy, EnemyPlugin, beetle::Beetle, glutton::Glutton, mushroom::Mushroom, seal::Seal,
         spider::Spider, stalker::Stalker, tree::Tree, turret::Turret, wolf::Wolf,
@@ -28,13 +30,14 @@ use crate::{
     player::{Player, PlayerPlugin},
     projectile::ProjectilePlugin,
     terrain::TerrainPlugin,
-    ui::GameUiPlugin,
+    ui::{GameUiPlugin, UserNotify},
     weapon::{
         WeaponPlugin, biogun::Biogun, blaster::Blaster, ion_cannon::IonCannon,
         pulse_rifle::PulseRifle, zapper::Zapper,
     },
 };
 
+mod boss;
 mod enemy;
 mod heart;
 mod level;
@@ -45,7 +48,80 @@ mod terrain;
 mod ui;
 mod weapon;
 
+#[derive(Resource)]
+pub enum GameState {
+    Running,
+    Paused,
+    Win,
+    Lose,
+}
+
+fn gamestate(
+    state: Res<GameState>,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    mut user_notify: EventWriter<UserNotify>,
+) {
+    match *state {
+        GameState::Win => {
+            user_notify.write(UserNotify(
+                "Поздравляем".to_string(),
+                "Вы прошли игру".to_string(),
+            ));
+        }
+        GameState::Lose => {
+            user_notify.write(UserNotify(
+                "Они ждали тебя не как врага".to_string(),
+                "А как жертву".to_string(),
+            ));
+        }
+        GameState::Running => {
+            window.cursor_options.grab_mode = CursorGrabMode::Confined;
+            window.cursor_options.visible = false;
+        }
+        GameState::Paused => {
+            window.cursor_options.grab_mode = CursorGrabMode::None;
+            window.cursor_options.visible = true;
+
+            user_notify.write(UserNotify(
+                "PAUSED".to_string(),
+                "PRESS ESC чтобы продолжить".to_string(),
+            ));
+        }
+    }
+}
+
+fn fullscreen(
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut fullscreen: Local<bool>,
+) {
+    if keys.just_pressed(KeyCode::F11) {
+        window.mode = if *fullscreen {
+            WindowMode::Windowed
+        } else {
+            WindowMode::BorderlessFullscreen(MonitorSelection::Current)
+        };
+        *fullscreen = !*fullscreen;
+    }
+}
+
 fn main() {
+    let mut level_builder = LevelBuilder::new();
+
+    let mut id = level_builder.add(Vec2::ZERO, area_home());
+
+    id = level_builder.add_after(id, PartAlign::Down, area_forest());
+
+    id = level_builder.add_after(id, PartAlign::Down, area_cave());
+    level_builder.add_after(id, PartAlign::Left, area_mushroom());
+    id = level_builder.add_after(id, PartAlign::Down, area_safe());
+
+    id = level_builder.add_after(id, PartAlign::Down, area_temple());
+    level_builder.add_after(id, PartAlign::Right, area_meat());
+    id = level_builder.add_after(id, PartAlign::Down, area_safe());
+
+    level_builder.add_after(id, PartAlign::Down, area_boss());
+
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -56,8 +132,8 @@ fn main() {
             ..Default::default()
         }))
         .add_plugins(HanabiPlugin)
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::default())
+        // .add_plugins(EguiPlugin::default())
+        // .add_plugins(WorldInspectorPlugin::default())
         .add_plugins(SkinnedAabbPlugin)
         .insert_resource(AmbientLight {
             color: Color::BLACK,
@@ -65,12 +141,17 @@ fn main() {
             ..Default::default()
         })
         .insert_resource(ClearColor(Color::srgba(0.02, 0.02, 0.02, 1.0)))
+        .insert_resource(GameState::Running)
         .add_systems(Startup, setup)
         .add_systems(Update, defer_despawn)
+        .add_systems(Update, gamestate)
+        .add_systems(Update, fullscreen)
         // .add_systems(Update, bury)
         .add_systems(Update, update_level)
         .add_systems(Update, grab_cursor)
+        .insert_resource(level_builder.build(4.0))
         .add_plugins(EnemyPlugin)
+        .add_plugins(BossPlugin)
         .add_plugins(HeartPlugin)
         .add_plugins(ModelLoaderPlugin)
         .add_plugins(PlayerPlugin)
@@ -160,25 +241,12 @@ fn area_boss() -> LevelPart {
         .build()
 }
 
-fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWindow>>) {
-    let mut level_builder = LevelBuilder::new();
-
-    let mut id = level_builder.add(Vec2::ZERO, area_home());
-
-    id = level_builder.add_after(id, PartAlign::Down, area_forest());
-
-    id = level_builder.add_after(id, PartAlign::Down, area_cave());
-    level_builder.add_after(id, PartAlign::Left, area_mushroom());
-    id = level_builder.add_after(id, PartAlign::Down, area_safe());
-
-    id = level_builder.add_after(id, PartAlign::Down, area_temple());
-    level_builder.add_after(id, PartAlign::Right, area_meat());
-    id = level_builder.add_after(id, PartAlign::Down, area_safe());
-
-    level_builder.add_after(id, PartAlign::Down, area_boss());
-
-    let level = level_builder.build(4.0);
-
+fn setup(
+    mut commands: Commands,
+    mut window: Single<&mut Window, With<PrimaryWindow>>,
+    asset_server: Res<AssetServer>,
+    level: Res<Level>,
+) {
     let mut enemy_points = vec![];
     for edge in level.graph.edge_references() {
         let source = level.graph.node_weight(edge.source()).unwrap();
@@ -196,7 +264,7 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
 
     let mut spawned = 0;
     while let Some(point) = enemy_points.pop() {
-        if spawned >= 200 {
+        if spawned >= 100 {
             break;
         }
 
@@ -218,7 +286,7 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
         };
 
         spawned += 1;
-        println!("{choice}: {point:?}");
+        // println!("{choice}: {point:?}");
         match *choice {
             "tree" => commands.spawn(Tree),
             "wolf" => commands.spawn(Wolf),
@@ -246,10 +314,23 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
 
     let step = (spawn_point - player_xy).normalize() * 5.0;
 
-    commands.spawn((
-        Zapper,
-        Transform::from_translation((spawn_point + step * 0.0).extend(0.0).xzy()),
-    ));
+    let home = Vec2::new(0.0, 0.0);
+    let forest = Vec2::new(0.0, -170.0);
+    let cave = Vec2::new(0.0, -340.0);
+    let mushroom = Vec2::new(-1000.0, -170.0);
+    let safe1 = Vec2::new(0.0, -456.0);
+    let temple = Vec2::new(0.0, -572.0);
+    let meat = Vec2::new(1000.0, -286.0);
+    let safe2 = Vec2::new(0.0, -688.0);
+    let boss = Vec2::new(0.0, -750.0);
+
+    for point in [home, safe1, safe2] {
+        let pos = level.nearest_terrain(1, point)[0].unwrap();
+        commands.spawn((
+            HeartSpawner,
+            Transform::from_translation((pos).extend(0.0).xzy()),
+        ));
+    }
 
     commands.spawn((
         Blaster,
@@ -258,30 +339,38 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
 
     commands.spawn((
         PulseRifle,
-        Transform::from_translation((spawn_point + step * 2.0).extend(0.0).xzy()),
+        Transform::from_translation(level.nearest_terrain(1, cave)[0].unwrap().extend(0.0).xzy()),
+    ));
+
+    commands.spawn((
+        Zapper,
+        Transform::from_translation(
+            level.nearest_terrain(1, mushroom)[0]
+                .unwrap()
+                .extend(0.0)
+                .xzy(),
+        ),
     ));
 
     commands.spawn((
         IonCannon,
-        Transform::from_translation((spawn_point + step * 3.0).extend(0.0).xzy()),
+        Transform::from_translation(
+            level.nearest_terrain(1, temple)[0]
+                .unwrap()
+                .extend(0.0)
+                .xzy(),
+        ),
     ));
 
     commands.spawn((
         Biogun,
-        Transform::from_translation((spawn_point + step * 4.0).extend(0.0).xzy()),
+        Transform::from_translation(level.nearest_terrain(1, meat)[0].unwrap().extend(0.0).xzy()),
     ));
 
     commands.spawn((
-        Wolf,
-        Transform::from_translation((spawn_point + step * 5.0).extend(0.0).xzy()),
+        BossSpawner,
+        Transform::from_translation(level.nearest_terrain(1, boss)[0].unwrap().extend(0.0).xzy()),
     ));
-
-    commands.spawn((
-        HeartSpawner,
-        Transform::from_translation((spawn_point + step * 6.0).extend(0.0).xzy()),
-    ));
-
-    commands.insert_resource(level);
 
     commands.spawn((
         Player::new(100.0),
@@ -308,6 +397,15 @@ fn setup(mut commands: Commands, mut window: Single<&mut Window, With<PrimaryWin
         shadows = false;
     }
 
+    commands.spawn((
+        AudioPlayer::new(asset_server.load("music/valaam_drums.ogg")),
+        PlaybackSettings {
+            mode: PlaybackMode::Loop,
+            volume: Volume::Linear(0.1),
+            ..Default::default()
+        },
+    ));
+
     window.cursor_options.grab_mode = CursorGrabMode::Confined;
     window.cursor_options.visible = false;
 }
@@ -324,17 +422,12 @@ fn update_level(
     }
 }
 
-fn grab_cursor(
-    mut window: Single<&mut Window, With<PrimaryWindow>>,
-    keys: Res<ButtonInput<KeyCode>>,
-) {
+fn grab_cursor(keys: Res<ButtonInput<KeyCode>>, mut game_state: ResMut<GameState>) {
     if keys.just_pressed(KeyCode::Escape) {
-        if window.cursor_options.visible {
-            window.cursor_options.grab_mode = CursorGrabMode::Confined;
-            window.cursor_options.visible = false;
-        } else {
-            window.cursor_options.grab_mode = CursorGrabMode::None;
-            window.cursor_options.visible = true;
+        match *game_state {
+            GameState::Running => *game_state = GameState::Paused,
+            GameState::Paused => *game_state = GameState::Running,
+            _ => {}
         }
     }
 }

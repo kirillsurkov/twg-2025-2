@@ -67,6 +67,7 @@ pub fn setup(
                 particle_lifetime,
                 bounces: 1,
                 damage: 1.0,
+                radius: 0.1,
                 on_bounce: Some(SpawnProjectile::Explosion),
             },
             ParticleEffect::new(effect.clone_weak()),

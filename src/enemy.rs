@@ -1,6 +1,11 @@
 use std::time::Duration;
 
-use bevy::{math::bounding::Aabb3d, prelude::*};
+use bevy::{
+    math::bounding::Aabb3d,
+    pbr::{ExtendedMaterial, MaterialExtension},
+    prelude::*,
+    render::render_resource::{AsBindGroup, ShaderRef},
+};
 use petgraph::algo::astar;
 
 use crate::{
@@ -26,9 +31,14 @@ pub struct EnemyPlugin;
 
 impl Plugin for EnemyPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(MaterialPlugin::<
+            ExtendedMaterial<StandardMaterial, EnemyMaterial>,
+        >::default());
+
         app.add_systems(Update, animate);
         app.add_systems(Update, ai);
         app.add_systems(Update, update_hp);
+        app.add_systems(Update, update_lightmap);
         app.add_systems(Update, beetle::setup);
         app.add_systems(Update, glutton::setup);
         app.add_systems(Update, mushroom::setup);
@@ -111,6 +121,12 @@ impl Enemy {
             animation: None,
         }
     }
+}
+
+fn update_lightmap(
+    mut materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, EnemyMaterial>>>,
+) {
+    for _ in materials.iter_mut() {}
 }
 
 fn update_hp(mut commands: Commands, mut enemies: Query<(Entity, &mut Enemy, &ApplyDamage)>) {
@@ -213,8 +229,8 @@ fn ai(
     mut all_physics: Query<&mut Physics>,
     time: Res<Time>,
 ) {
-    let default_aggro_distance = 50.0;
-    let default_aggro_timer = 3.0;
+    let default_aggro_distance = 25.0;
+    let default_aggro_timer = 5.0;
 
     let player_pos = transforms.get(*player).unwrap().translation.xz();
 
@@ -456,5 +472,20 @@ fn ai(
         }
 
         // println!("{player_pos:?}\n{:?}\n{:?}\n", physics.move_vec, enemy.path);
+    }
+}
+
+#[derive(Asset, AsBindGroup, Reflect, Debug, Clone)]
+pub struct EnemyMaterial {
+    #[uniform(100)]
+    pub bounds: Vec4,
+    #[texture(101)]
+    #[sampler(102)]
+    pub lightmap: Handle<Image>,
+}
+
+impl MaterialExtension for EnemyMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/enemy.wgsl".into()
     }
 }

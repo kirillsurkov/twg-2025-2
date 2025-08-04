@@ -13,7 +13,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Stalker>>) {
         commands.entity(entity).insert(LoadModel::new(
             "stalker",
             ReadyAction::Enemy {
-                attack: AttackKind::Ranged(SpawnProjectile::Bullet),
+                attack: AttackKind::Ranged(SpawnProjectile::StalkerProj),
                 attack_range: 15.0,
                 attack_delay: 1.0,
                 speed: 5.0,

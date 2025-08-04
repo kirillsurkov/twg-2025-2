@@ -14,8 +14,8 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Biogun>>) {
             "gun5",
             ReadyAction::Weapon {
                 offset: Vec3::new(1.0, -1.5, -2.0),
-                shoot_delay: 0.5,
-                projectile: SpawnProjectile::Bullet,
+                shoot_delay: 0.05,
+                projectile: SpawnProjectile::BiogunProj,
             },
             Vec3::splat(0.5),
         ));

@@ -11,6 +11,7 @@ use bevy_heightmap::mesh_builder::MeshBuilder;
 use imageproc::image::{GenericImageView, imageops::FilterType};
 
 use crate::{
+    GameState,
     level::{BiomePixel, Level},
     player::Player,
 };
@@ -26,6 +27,20 @@ impl Plugin for TerrainPlugin {
         app.add_systems(Update, init_chunks.after(init));
         app.add_systems(Update, update_lightmap.after(init));
         app.add_systems(Update, physics.after(init));
+
+        let texture_size = app.world().resource::<Level>().texture_size().as_uvec2();
+        let mut images = app.world_mut().resource_mut::<Assets<Image>>();
+        let textures = Textures::new(
+            &mut *images,
+            &[
+                "bricks", "dirt", "grass", "guts", "stone", "tiles", "feathers", "fungus", "lab",
+                "mud", "rock",
+            ],
+        );
+        let lightmap = DynamicLightmap::new(&mut *images, texture_size / 8);
+
+        app.insert_resource(textures);
+        app.insert_resource(lightmap);
     }
 }
 
@@ -44,7 +59,7 @@ struct Textures {
 }
 
 #[derive(Resource)]
-struct DynamicLightmap(Handle<Image>);
+pub struct DynamicLightmap(pub Handle<Image>);
 
 impl DynamicLightmap {
     fn new(images: &mut Assets<Image>, size: UVec2) -> Self {
@@ -116,7 +131,7 @@ impl Textures {
                             FilterType::Lanczos3,
                         );
                         image.save(path.clone()).unwrap();
-                        println!("Created mip {path}");
+                        // println!("Created mip {path}");
                         image
                     }
                 };
@@ -179,19 +194,12 @@ impl Physics {
     }
 }
 
-fn init(mut commands: Commands, level: Res<Level>, mut images: ResMut<Assets<Image>>) {
+fn init(mut commands: Commands, level: Res<Level>) {
     let texture_size = level.texture_size().as_uvec2();
     let chunk_size = UVec2::splat(Chunk::MESH_SIZE);
     let chunks_count = (texture_size / chunk_size) + (texture_size % chunk_size).min(UVec2::ONE);
     let starting_point = level.bounds().min;
     let scale = chunk_size.as_vec2() * level.bounds().size() / texture_size.as_vec2();
-
-    commands.insert_resource(Textures::new(
-        &mut *images,
-        &["bricks", "dirt", "grass", "guts", "stone", "tiles"],
-    ));
-
-    commands.insert_resource(DynamicLightmap::new(&mut *images, texture_size / 8));
 
     let mut terrain = commands.spawn((
         Name::new("Terrain"),
@@ -291,6 +299,7 @@ fn init_chunks(
                     albedo: textures.albedo.clone_weak(),
                     roughness: textures.roughness.clone_weak(),
                     normal: textures.normal.clone_weak(),
+                    timer_1k: 0.0,
                 },
             })),
         ));
@@ -309,7 +318,9 @@ fn update_lightmap(
         return;
     };
 
-    for _ in materials.iter_mut() {}
+    for (_, material) in materials.iter_mut() {
+        material.extension.timer_1k = time.elapsed_secs_wrapped() % 1000.0;
+    }
 
     let radius = Vec2::splat(32.0) * lightmap.size_f32() / level.bounds().size();
 
@@ -343,7 +354,12 @@ fn physics(
     time: Res<Time>,
     queries: Query<(Entity, &Physics)>,
     mut transforms: Query<&mut Transform>,
+    game_state: ResMut<GameState>,
 ) {
+    if !matches!(*game_state, GameState::Running) {
+        return;
+    }
+
     for (entity, physics) in queries {
         let speed = physics.move_vec.length().min(1.0) * physics.speed;
         let move_vec = physics.move_vec.normalize_or_zero();
@@ -399,6 +415,8 @@ struct TerrainMaterial {
     #[texture(109, dimension = "2d_array")]
     #[sampler(110)]
     normal: Handle<Image>,
+    #[uniform(111)]
+    timer_1k: f32,
 }
 
 impl MaterialExtension for TerrainMaterial {

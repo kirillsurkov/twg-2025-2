@@ -3,6 +3,7 @@ use std::{f32::consts::TAU, time::Duration};
 use bevy::{pbr::NotShadowCaster, prelude::*, render::view::RenderLayers};
 
 use crate::{
+    GameState,
     level::Level,
     player::Player,
     projectile::{Damage, SpawnProjectile, bullet::Bullet},
@@ -146,7 +147,10 @@ fn update(
         match &mut weapon.state {
             State::OnGround => {
                 if can_pickup {
-                    user_notify.write(UserNotify("Чтобы поднять оружие".to_string()));
+                    user_notify.write(UserNotify(
+                        "Нажмите 'E'".to_string(),
+                        "Чтобы поднять оружие".to_string(),
+                    ));
                 }
                 if can_pickup && player.interaction {
                     let slot = player.active_slot;
@@ -236,36 +240,56 @@ fn animate(
 fn shoot(
     mut commands: Commands,
     mut weapons: Query<&mut Weapon>,
-    transforms: Query<(&Transform, &GlobalTransform)>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    global_transforms: Query<&GlobalTransform>,
+    mut transforms: Query<&mut Transform>,
+    mut cameras: Query<(&Camera, &GlobalTransform)>,
     player: Single<(&Player, &Physics)>,
     level: Res<Level>,
     time: Res<Time>,
+    game_state: Res<GameState>,
 ) {
+    if !matches!(*game_state, GameState::Running) {
+        return;
+    }
+
     let (player, player_physics) = player.into_inner();
-    let (camera, camera_transform) = cameras.get(player.weapon_camera).unwrap();
+    let (camera, weapon_camera_transform) = cameras.get_mut(player.weapon_camera).unwrap();
+    let mut camera_transform = transforms.get_mut(player.world_camera).unwrap();
 
     let isec = level.raycast(
-        camera_transform.translation(),
-        camera_transform.forward(),
+        weapon_camera_transform.translation(),
+        weapon_camera_transform.forward(),
         1.0,
         100.0,
         8,
     );
 
+    let min_pitch = 0.0140;
+    let max_pitch = 0.0262;
+    let max_yaw = 0.0087;
+
     for mut weapon in &mut weapons {
         if matches!(weapon.state, State::InHands { shoot: true }) && weapon.shoot_timer <= 0.0 {
-            let (transform, global_transform) = transforms.get(weapon.model).unwrap();
+            let global_transform = global_transforms.get(weapon.model).unwrap();
             let shoot_point = global_transform.transform_point(weapon.shoot_point);
             let shoot_point = camera
-                .world_to_viewport(camera_transform, shoot_point)
+                .world_to_viewport(weapon_camera_transform, shoot_point)
                 .unwrap();
             let shoot_point = camera
-                .viewport_to_world(camera_transform, shoot_point)
+                .viewport_to_world(weapon_camera_transform, shoot_point)
                 .unwrap();
             let shoot_point =
                 shoot_point.origin + shoot_point.direction * player_physics.radius * 0.5;
-            println!("SHOOT! {isec}");
+            // cameraPitch -= Random(minVerticalKick, maxVerticalKick)
+            // cameraYaw += Random(-horizontalKick, horizontalKick)
+            // println!("SHOOT! {isec}");
+            let (mut yaw, mut pitch, _) = camera_transform.rotation.to_euler(EulerRot::YXZ);
+            yaw += rand::random_range(-max_yaw..=max_yaw);
+            pitch += rand::random_range(min_pitch..=max_pitch);
+            let new_rotation =
+                Quat::from_axis_angle(Vec3::Y, yaw) * Quat::from_axis_angle(Vec3::X, pitch);
+            camera_transform.rotation = camera_transform.rotation.slerp(new_rotation, 0.5);
+
             weapon.projectile.spawn(
                 &mut commands,
                 Transform::from_translation(shoot_point).looking_at(isec, Vec3::Y),

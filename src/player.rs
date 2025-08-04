@@ -7,7 +7,7 @@ use bevy::{
     window::{CursorGrabMode, PrimaryWindow},
 };
 
-use crate::{projectile::ApplyDamage, terrain::Physics};
+use crate::{GameState, projectile::ApplyDamage, terrain::Physics};
 
 pub struct PlayerPlugin;
 
@@ -21,7 +21,7 @@ impl Plugin for PlayerPlugin {
 
 #[derive(Component)]
 pub struct Player {
-    world_camera: Entity,
+    pub world_camera: Entity,
     pub weapon_camera: Entity,
     pub weapons: Vec<Entity>,
     pub active_slot: usize,
@@ -146,15 +146,22 @@ fn controller(
     player.shoot = keys_mouse.pressed(MouseButton::Left);
     player.active_slot = match true {
         _ if keys.just_pressed(KeyCode::Digit1) => 0,
-        _ if keys.just_pressed(KeyCode::Digit2) => 1,
-        _ if keys.just_pressed(KeyCode::Digit3) => 2,
-        _ if keys.just_pressed(KeyCode::Digit4) => 3,
+        // _ if keys.just_pressed(KeyCode::Digit2) => 1,
+        // _ if keys.just_pressed(KeyCode::Digit3) => 2,
+        // _ if keys.just_pressed(KeyCode::Digit4) => 3,
         _ => player.active_slot,
     };
 }
 
-fn update_hp(mut commands: Commands, player: Single<(Entity, &mut Player, &ApplyDamage)>) {
+fn update_hp(
+    mut commands: Commands,
+    player: Single<(Entity, &mut Player, &ApplyDamage)>,
+    mut game_state: ResMut<GameState>,
+) {
     let (entity, mut player, damage) = player.into_inner();
     commands.entity(entity).remove::<ApplyDamage>();
     player.hp -= damage.0;
+    if player.hp <= 0.0 {
+        *game_state = GameState::Lose;
+    }
 }

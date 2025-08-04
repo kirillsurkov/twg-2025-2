@@ -19,7 +19,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Spider>>) {
                 speed: 5.0,
                 hp: 90.0,
             },
-            Vec3::splat(0.5),
+            Vec3::splat(1.0),
         ));
     }
 }

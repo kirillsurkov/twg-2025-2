@@ -413,6 +413,8 @@ impl LevelBuilder {
             self.bounds.max.y.max(part.bounds.max.y),
         );
 
+        // println!("{:?}", self.bounds);
+
         for point in part.graph.node_weights_mut() {
             *point += offset;
             self.graph.add_node(*point);

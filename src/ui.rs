@@ -58,7 +58,7 @@ struct UserNotifyLine1;
 struct UserNotifyLine2;
 
 #[derive(Event)]
-pub struct UserNotify(pub String);
+pub struct UserNotify(pub String, pub String);
 
 fn update_notification(
     line1: Single<(&mut Text, &mut TextColor), With<UserNotifyLine1>>,
@@ -72,16 +72,16 @@ fn update_notification(
     let mut alpha = color1.alpha();
 
     if notifications.is_empty() {
-        alpha -= time.delta_secs() * 3.0;
+        alpha -= time.delta_secs();
     } else {
-        alpha += time.delta_secs() * 3.0;
+        alpha = 1.0;
     }
 
     alpha = alpha.clamp(0.0, 1.0);
 
     for notification in notifications.read() {
-        line1.0 = "Нажмите 'E'".to_string();
-        line2.0 = notification.0.clone();
+        line1.0 = notification.0.clone();
+        line2.0 = notification.1.clone();
     }
 
     color1.set_alpha(alpha);
@@ -101,9 +101,9 @@ fn setup(mut commands: Commands, assets: Res<AssetServer>) {
         children![
             crosshair(),
             hpbar(font.clone()),
-            inventory(),
+            // inventory(),
             user_notify(font.clone()),
-            user_story(font.clone()),
+            // user_story(font.clone()),
         ],
     ));
 }
@@ -295,7 +295,7 @@ fn user_notify(font: Handle<Font>) -> impl Bundle {
             align_items: AlignItems::Center,
             ..Default::default()
         },
-        BackgroundColor(css::AQUA.into()),
+        // BackgroundColor(css::AQUA.into()),
         children![
             (
                 UserNotifyLine1,
@@ -336,7 +336,7 @@ fn user_story(font: Handle<Font>) -> impl Bundle {
             align_items: AlignItems::Center,
             ..Default::default()
         },
-        BackgroundColor(css::CORAL.into()),
+        // BackgroundColor(css::CORAL.into()),
         children![
             // (
             //     UserNotifyLine1,

@@ -13,8 +13,8 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Beetle>>) {
         commands.entity(entity).insert(LoadModel::new(
             "beetle",
             ReadyAction::Enemy {
-                attack: AttackKind::Ranged(SpawnProjectile::Bullet),
-                attack_range: 15.0,
+                attack: AttackKind::Ranged(SpawnProjectile::BeetleProj),
+                attack_range: 20.0,
                 attack_delay: 1.0,
                 speed: 5.0,
                 hp: 450.0,

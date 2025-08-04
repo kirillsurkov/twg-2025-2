@@ -1,13 +1,16 @@
 use bevy::{
     math::bounding::{Aabb3d, BoundingVolume},
+    pbr::ExtendedMaterial,
     prelude::*,
 };
 
 use crate::{
-    enemy::{AttackKind, Enemy},
+    boss::Boss,
+    enemy::{AttackKind, Enemy, EnemyMaterial},
     heart::Heart,
+    level::Level,
     projectile::SpawnProjectile,
-    terrain::Physics,
+    terrain::{DynamicLightmap, Physics},
     weapon::Weapon,
 };
 
@@ -34,6 +37,7 @@ pub enum ReadyAction {
         projectile: SpawnProjectile,
     },
     Heart,
+    Boss,
 }
 
 #[derive(Component)]
@@ -81,9 +85,11 @@ fn load_model(
     anim_players: Query<&AnimationPlayer>,
     names: Query<&Name>,
     transforms: Query<&Transform>,
-
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    standard_materials: Res<Assets<StandardMaterial>>,
+    standard_material_handles: Query<&MeshMaterial3d<StandardMaterial>>,
+    mut enemy_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, EnemyMaterial>>>,
+    level: Res<Level>,
+    lightmap: Res<DynamicLightmap>,
 ) {
     for (
         entity,
@@ -144,6 +150,7 @@ fn load_model(
                                         .0
                                     }
                                     ReadyAction::Heart => AnimationGraph::new(),
+                                    ReadyAction::Boss => AnimationGraph::new(),
                                 }),
                                 action: *action,
                                 scale: *scale,
@@ -173,6 +180,33 @@ fn load_model(
                         let mut hitbox = Entity::PLACEHOLDER;
                         let mut shoot_point = Entity::PLACEHOLDER;
                         for entity in children.iter_descendants(entity).chain([entity]) {
+                            if let Ok(standard_material) = standard_material_handles.get(entity) {
+                                if let Some(standard_material) =
+                                    standard_materials.get(standard_material)
+                                {
+                                    commands
+                                        .entity(entity)
+                                        .remove::<MeshMaterial3d<StandardMaterial>>()
+                                        .insert(MeshMaterial3d(enemy_materials.add(
+                                            ExtendedMaterial::<StandardMaterial, EnemyMaterial> {
+                                                base: standard_material.clone(),
+                                                extension: EnemyMaterial {
+                                                    bounds: {
+                                                        let bounds = level.bounds();
+                                                        Vec4::new(
+                                                            bounds.min.x,
+                                                            bounds.min.y,
+                                                            bounds.max.x,
+                                                            bounds.max.y,
+                                                        )
+                                                    },
+                                                    lightmap: lightmap.0.clone_weak(),
+                                                },
+                                            },
+                                        )));
+                                }
+                            }
+
                             if anim_players.contains(entity) {
                                 anim_player = entity;
                             }
@@ -276,6 +310,14 @@ fn load_model(
                     }
                     ReadyAction::Heart => {
                         commands.entity(entity).insert(Heart);
+                    }
+                    ReadyAction::Boss => {
+                        commands.entity(entity).insert(Boss {
+                            attack_delay: 1.0,
+                            timer: 0.0,
+                            max_hp: 4000.0,
+                            hp: 4000.0,
+                        });
                     }
                 }
             }

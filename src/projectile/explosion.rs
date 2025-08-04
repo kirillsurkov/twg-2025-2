@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{audio::Volume, prelude::*};
 use bevy_hanabi::{
     Attribute, EffectAsset, ExprWriter, Gradient, OrientMode, OrientModifier, ParticleEffect,
     SetAttributeModifier, SetPositionSphereModifier, SetVelocitySphereModifier, ShapeDimension,
@@ -15,6 +15,7 @@ pub fn setup(
     mut effects: ResMut<Assets<EffectAsset>>,
     mut effect: Local<Option<Handle<EffectAsset>>>,
     entities: Query<Entity, Added<Explosion>>,
+    asset_server: Res<AssetServer>,
 ) {
     let radius = 5.0;
     let particle_lifetime = 0.5;
@@ -63,9 +64,16 @@ pub fn setup(
                 particle_lifetime,
                 bounces: 0,
                 damage: 20.0,
+                radius: 1.0,
                 on_bounce: None,
             },
             ParticleEffect::new(effect.clone_weak()),
+            AudioPlayer::new(asset_server.load("sounds/explosion.wav")),
+            PlaybackSettings {
+                volume: Volume::Linear(0.5),
+                spatial: true,
+                ..Default::default()
+            },
         ));
     }
 }

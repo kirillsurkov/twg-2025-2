@@ -2,7 +2,8 @@ use bevy::prelude::*;
 
 use crate::{
     enemy::AttackKind,
-    model_loader::{LoadModel, ReadyAction}, projectile::SpawnProjectile,
+    model_loader::{LoadModel, ReadyAction},
+    projectile::SpawnProjectile,
 };
 
 #[derive(Component)]
@@ -13,7 +14,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Tree>>) {
         commands.entity(entity).insert(LoadModel::new(
             "tree",
             ReadyAction::Enemy {
-                attack: AttackKind::Ranged(SpawnProjectile::Bullet),
+                attack: AttackKind::Ranged(SpawnProjectile::TreeProj),
                 attack_range: 20.0,
                 attack_delay: 0.5,
                 speed: 5.0,

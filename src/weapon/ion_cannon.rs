@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use crate::{model_loader::{LoadModel, ReadyAction}, projectile::SpawnProjectile};
+use crate::{
+    model_loader::{LoadModel, ReadyAction},
+    projectile::SpawnProjectile,
+};
 
 #[derive(Component)]
 pub struct IonCannon;
@@ -12,7 +15,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<IonCannon>>) 
             ReadyAction::Weapon {
                 offset: Vec3::new(2.0, -2.5, -3.0),
                 shoot_delay: 0.5,
-                projectile: SpawnProjectile::DetonationBolt,
+                projectile: SpawnProjectile::IonCannonProj,
             },
             Vec3::splat(0.5),
         ));

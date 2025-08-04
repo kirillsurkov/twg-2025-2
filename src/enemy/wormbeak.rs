@@ -14,7 +14,7 @@ pub fn setup(mut commands: Commands, entities: Query<Entity, Added<Wormbeak>>) {
         commands.entity(entity).insert(LoadModel::new(
             "wormbeak",
             ReadyAction::Enemy {
-                attack: AttackKind::Ranged(SpawnProjectile::Bullet),
+                attack: AttackKind::Ranged(SpawnProjectile::WormbeakProj),
                 attack_range: 15.0,
                 attack_delay: 0.5,
                 speed: 5.0,

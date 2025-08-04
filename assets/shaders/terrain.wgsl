@@ -21,35 +21,62 @@
 @group(2) @binding(108) var roughness_sampler: sampler;
 @group(2) @binding(109) var normal: texture_2d_array<f32>;
 @group(2) @binding(110) var normal_sampler: sampler;
+@group(2) @binding(111) var<uniform> timer_1k: f32;
 
-struct Biome {
-    safe: f32,
-    home: f32,
-    forest: f32,
-    cave: f32,
-    ice: f32,
-    temple: f32,
-    boss: f32,
+const SAFE:     u32 = 0;
+const HOME:     u32 = 1;
+const FOREST:   u32 = 2;
+const CAVE:     u32 = 3;
+const MUSHROOM: u32 = 4;
+const TEMPLE:   u32 = 5;
+const MEAT:     u32 = 6;
+const BOSS:     u32 = 7;
+
+struct BiomeResult {
+    max1_idx: u32,
+    max2_idx: u32,
+    max1_val: f32,
+    max2_val: f32,
 }
 
-fn sample_biome(uv: vec2<f32>) -> Biome {
-    var out: Biome;
-    out.safe   = textureSample(biome_mask, biome_mask_sampler, uv, 0).r;
-    out.home   = textureSample(biome_mask, biome_mask_sampler, uv, 1).r;
-    out.forest = textureSample(biome_mask, biome_mask_sampler, uv, 2).r;
-    out.cave   = textureSample(biome_mask, biome_mask_sampler, uv, 3).r;
-    out.ice    = textureSample(biome_mask, biome_mask_sampler, uv, 4).r;
-    out.temple = textureSample(biome_mask, biome_mask_sampler, uv, 5).r;
-    out.boss   = textureSample(biome_mask, biome_mask_sampler, uv, 6).r;
+fn sample_top2_biomes(uv: vec2<f32>) -> BiomeResult {
+    var max1_val: f32 = 0.0;
+    var max2_val: f32 = 0.0;
+    var max1_idx: u32 = 0u;
+    var max2_idx: u32 = 0u;
+
+    for (var i: u32 = 0u; i < 8u; i = i + 1u) {
+        let val = textureSample(biome_mask, biome_mask_sampler, uv, i).r;
+        if (val > max1_val) {
+            max2_val = max1_val;
+            max2_idx = max1_idx;
+            max1_val = val;
+            max1_idx = i;
+        } else if (val > max2_val) {
+            max2_val = val;
+            max2_idx = i;
+        }
+    }
+
+    var out: BiomeResult;
+    out.max1_idx = max1_idx;
+    out.max2_idx = max2_idx;
+    out.max1_val = max1_val;
+    out.max2_val = max2_val;
     return out;
 }
 
-const BRICKS: u32 = 0;
-const DIRT:   u32 = 1;
-const GRASS:  u32 = 2;
-const GUTS:   u32 = 3;
-const STONE:  u32 = 4;
-const TILES:  u32 = 5;
+const BRICKS:   u32 = 0;
+const DIRT:     u32 = 1;
+const GRASS:    u32 = 2;
+const GUTS:     u32 = 3;
+const STONE:    u32 = 4;
+const TILES:    u32 = 5;
+const FEATHERS: u32 = 6;
+const FUNGUS:   u32 = 7;
+const LAB:      u32 = 8;
+const MUD:      u32 = 9;
+const ROCK:     u32 = 10;
 
 struct PbrPixel {
     albedo: vec4<f32>,
@@ -97,7 +124,11 @@ fn boxmap(t: texture_2d_array<f32>, s: sampler, layer: u32, p: vec3<f32>, n: vec
 	return (x*m.x + y*m.y + z*m.z) / (m.x + m.y + m.z);
 }
 
-fn sample_texture(texture: u32, p: vec3<f32>, n: vec3<f32>) -> PbrPixel {
+fn sample_texture(texture: u32, p_orig: vec3<f32>, n: vec3<f32>) -> PbrPixel {
+    var p = p_orig;
+    if texture == GUTS {
+        p += 0.2 * sin(3.14159265 * fract(timer_1k * 0.05));
+    }
     var out: PbrPixel;
     out.albedo = boxmap(albedo, albedo_sampler, texture, p, n, 8.0);
     out.roughness = boxmap(roughness, roughness_sampler, texture, p, n, 8.0).r;
@@ -122,6 +153,50 @@ fn grad3(height: f32,
     return out;
 }
 
+fn texture_biome(biome: u32, p: vec3<f32>, n: vec3<f32>, height: f32) -> PbrPixel {
+    if biome == SAFE {
+        let tex1 = sample_texture(TILES, p, n);
+        let tex2 = sample_texture(ROCK, p, n);
+        let tex3 = sample_texture(STONE, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    } else if biome == HOME {
+        let tex1 = sample_texture(TILES, p, n);
+        let tex2 = sample_texture(BRICKS, p, n);
+        let tex3 = sample_texture(GRASS, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    } else if biome == FOREST {
+        let tex1 = sample_texture(DIRT, p, n);
+        let tex2 = sample_texture(GRASS, p, n);
+        let tex3 = sample_texture(STONE, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    } else if biome == CAVE {
+        let tex1 = sample_texture(MUD, p, n);
+        let tex2 = sample_texture(ROCK, p, n);
+        let tex3 = sample_texture(ROCK, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    } else if biome == MUSHROOM {
+        let tex1 = sample_texture(FUNGUS, p, n);
+        let tex2 = sample_texture(FUNGUS, p, n);
+        let tex3 = sample_texture(ROCK, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    } else if biome == TEMPLE {
+        let tex1 = sample_texture(TILES, p, n);
+        let tex2 = sample_texture(FEATHERS, p, n);
+        let tex3 = sample_texture(ROCK, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    } else if biome == MEAT {
+        let tex1 = sample_texture(GUTS, p, n);
+        let tex2 = sample_texture(GUTS, p, n);
+        let tex3 = sample_texture(ROCK, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    } else { // if biome == BOSS
+        let tex1 = sample_texture(TILES, p, n);
+        let tex2 = sample_texture(LAB, p, n);
+        let tex3 = sample_texture(ROCK, p, n);
+        return grad3(height, tex1, 0.0, tex2, 0.1, tex3, 20.0);
+    }
+}
+
 @fragment
 fn fragment(
     in: VertexOutput,
@@ -135,25 +210,13 @@ fn fragment(
     let time = globals.time / 10.0;
     let shift = vec3(cos(time), 0.0, sin(time));
 
-    let bricks = sample_texture(BRICKS, pos, in.world_normal);
-    let dirt   = sample_texture(DIRT,   pos, in.world_normal);
-    let grass  = sample_texture(GRASS,  pos, in.world_normal);
-    let guts   = sample_texture(GUTS,   pos + shift, in.world_normal);
-    let stone  = sample_texture(STONE,  pos, in.world_normal);
-    let tiles  = sample_texture(TILES,  pos, in.world_normal);
+    let biomes = sample_top2_biomes(in.uv);
+    let weights = normalize(vec2(biomes.max1_val, biomes.max2_val));
 
-    let home   = grad3(height, tiles, 0.0, bricks, 0.1, grass, 3.0);
-    let safe   = grad3(height, tiles, 0.0, grass, 0.1, stone, 20.0);
-    let forest = grad3(height, dirt, 0.0, grass, 0.1, stone, 20.0);
-    let cave   = grad3(height, guts, 0.0, guts, 0.1, stone, 20.0);
+    let color1 = texture_biome(biomes.max1_idx, pos, in.world_normal, height);
+    let color2 = texture_biome(biomes.max2_idx, pos, in.world_normal, height);
 
-    let biome = sample_biome(in.uv);
-
-    var pixel = pbr_new();
-    pixel = pbr_add(pixel, pbr_mul(home, biome.home));
-    pixel = pbr_add(pixel, pbr_mul(safe, biome.safe));
-    pixel = pbr_add(pixel, pbr_mul(forest, biome.forest));
-    pixel = pbr_add(pixel, pbr_mul(cave, biome.cave));
+    let pixel = pbr_add(pbr_mul(color1, weights.x), pbr_mul(color2, weights.y));
 
     pbr_input.material.base_color = pixel.albedo;
     pbr_input.material.perceptual_roughness = pixel.roughness;
